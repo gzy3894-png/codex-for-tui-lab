@@ -85,6 +85,17 @@ HELPER="$TMP/home/.codex/bin/provider-api-key"
 [ -x "$HELPER" ] || fail "provider-api-key helper was not executable"
 
 assert_file_contains "$CFG" 'model = "gpt-5.5"'
+assert_file_contains "$CFG" 'model_auto_compact_token_limit = 220000'
+assert_file_contains "$CFG" 'service_tier = "default"'
+assert_file_contains "$CFG" 'disable_response_storage = true'
+assert_file_contains "$CFG" '[features]'
+assert_file_contains "$CFG" 'auto_compaction = true'
+assert_file_contains "$CFG" 'fast_mode = true'
+assert_file_contains "$CFG" 'goals = true'
+assert_file_contains "$CFG" 'hooks = false'
+assert_file_contains "$CFG" '[tui]'
+assert_file_contains "$CFG" 'status_line = ["model-with-reasoning", "current-dir", "context-remaining", "used-tokens", "total-input-tokens", "total-output-tokens", "fast-mode", "task-progress"]'
+assert_file_contains "$CFG" 'status_line_use_colors = true'
 assert_file_not_contains "$CFG" "可用模型"
 assert_file_not_contains "$CFG" "sk-lab-fake"
 assert_file_contains "$AUTH" '"OPENAI_API_KEY"'
@@ -103,6 +114,41 @@ if model != "gpt-5.5":
     raise SystemExit(f"model should be a single selected id, got {model!r}")
 if "\n" in model or "可用模型" in model:
     raise SystemExit(f"polluted model value: {model!r}")
+if cfg.get("model_auto_compact_token_limit") != 220000:
+    raise SystemExit("common auto compact token limit should be 220000")
+if cfg.get("service_tier") != "default":
+    raise SystemExit("common service_tier should default to explicit default")
+if cfg.get("disable_response_storage") is not True:
+    raise SystemExit("disable_response_storage should be true")
+features = cfg.get("features")
+if not isinstance(features, dict):
+    raise SystemExit("[features] table missing")
+expected_features = {
+    "auto_compaction": True,
+    "fast_mode": True,
+    "goals": True,
+    "hooks": False,
+}
+for key, expected in expected_features.items():
+    if features.get(key) is not expected:
+        raise SystemExit(f"features.{key} should be {expected!r}, got {features.get(key)!r}")
+tui = cfg.get("tui")
+if not isinstance(tui, dict):
+    raise SystemExit("[tui] table missing")
+expected_status_line = [
+    "model-with-reasoning",
+    "current-dir",
+    "context-remaining",
+    "used-tokens",
+    "total-input-tokens",
+    "total-output-tokens",
+    "fast-mode",
+    "task-progress",
+]
+if tui.get("status_line") != expected_status_line:
+    raise SystemExit(f"unexpected tui.status_line: {tui.get('status_line')!r}")
+if tui.get("status_line_use_colors") is not True:
+    raise SystemExit("tui.status_line_use_colors should be true")
 with open(catalog_path, "r", encoding="utf-8") as fh:
     catalog = json.load(fh)
 models = catalog.get("models")
@@ -127,6 +173,22 @@ for item in models:
         raise SystemExit(f"unexpected reasoning efforts for {slug}: {efforts!r}")
     if item.get("default_verbosity") != "low":
         raise SystemExit(f"default_verbosity should be low for {slug}")
+    if item.get("auto_compact_token_limit") != 220000:
+        raise SystemExit(f"auto_compact_token_limit should be 220000 for {slug}")
+    if item.get("additional_speed_tiers") != ["fast"]:
+        raise SystemExit(f"additional_speed_tiers should expose fast for {slug}")
+    service_tiers = item.get("service_tiers")
+    if not isinstance(service_tiers, list) or not service_tiers:
+        raise SystemExit(f"service_tiers should expose fast mode for {slug}")
+    fast_tiers = [
+        tier for tier in service_tiers
+        if isinstance(tier, dict) and tier.get("id") == "priority"
+    ]
+    if not fast_tiers:
+        raise SystemExit(f"service_tiers missing priority fast tier for {slug}: {service_tiers!r}")
+    fast_tier = fast_tiers[0]
+    if fast_tier.get("name") != "Fast" or not isinstance(fast_tier.get("description"), str):
+        raise SystemExit(f"invalid fast tier metadata for {slug}: {fast_tier!r}")
     for level in levels:
         if not isinstance(level, dict):
             raise SystemExit(
@@ -138,6 +200,90 @@ for item in models:
         if not isinstance(level.get("description"), str):
             raise SystemExit(f"reasoning level missing description: {level!r}")
 print("OK: config and model catalog contract passed")
+PY
+
+PRESERVE_HOME="$TMP/preserve-home"
+mkdir -p "$PRESERVE_HOME/.codex"
+cat > "$PRESERVE_HOME/.codex/config.toml" <<'EOF'
+# user-edit-marker=must-survive-config-mode
+model = "old-model"
+model_provider = "old-provider"
+model_reasoning_effort = "high"
+model_auto_compact_token_limit = 210000
+service_tier = "default"
+
+[features]
+auto_compaction = false
+
+[tui]
+status_line = ["model", "current-dir"]
+status_line_use_colors = false
+
+[custom_section]
+flag = "survive"
+
+[model_providers.custom]
+name = "stale"
+base_url = "https://stale.invalid/v1"
+wire_api = "responses"
+requires_openai_auth = false
+EOF
+printf '%s\n' "gpt-5.4" "gpt-5.5" > "$TMP/preserve-models.txt"
+(
+  . "$SCRIPT_DIR/lib/codex-zh-common.sh"
+  . "$SCRIPT_DIR/lib/codex-zh-config.sh"
+  export HOME="$PRESERVE_HOME"
+  export CODEX_HOME="$PRESERVE_HOME/.codex"
+  codex_config_write_third_party_config "http://127.0.0.1:$PORT/v1" "sk-lab-fake" "gpt-5.4" "$TMP/preserve-models.txt"
+) || fail "preservation config rewrite failed"
+
+PCFG="$PRESERVE_HOME/.codex/config.toml"
+assert_file_contains "$PCFG" '# user-edit-marker=must-survive-config-mode'
+assert_file_contains "$PCFG" 'model = "gpt-5.4"'
+assert_file_contains "$PCFG" 'model_provider = "custom"'
+assert_file_contains "$PCFG" 'model_reasoning_effort = "high"'
+assert_file_contains "$PCFG" 'model_auto_compact_token_limit = 210000'
+assert_file_contains "$PCFG" 'service_tier = "default"'
+assert_file_contains "$PCFG" 'auto_compaction = false'
+assert_file_contains "$PCFG" 'fast_mode = true'
+assert_file_contains "$PCFG" 'goals = true'
+assert_file_contains "$PCFG" 'hooks = false'
+assert_file_contains "$PCFG" 'status_line = ["model", "current-dir"]'
+assert_file_contains "$PCFG" 'status_line_use_colors = false'
+assert_file_contains "$PCFG" '[custom_section]'
+assert_file_contains "$PCFG" 'flag = "survive"'
+assert_file_contains "$PCFG" 'base_url = "http://127.0.0.1:'"$PORT"'/v1"'
+assert_file_not_contains "$PCFG" "https://stale.invalid/v1"
+assert_file_not_contains "$PCFG" "sk-lab-fake"
+
+"$PYTHON" - "$PCFG" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as fh:
+    cfg = tomllib.load(fh)
+if cfg.get("model") != "gpt-5.4":
+    raise SystemExit("selected model was not updated")
+if cfg.get("model_reasoning_effort") != "high":
+    raise SystemExit("user reasoning effort was clobbered")
+if cfg.get("model_auto_compact_token_limit") != 210000:
+    raise SystemExit("user auto compact limit was clobbered")
+features = cfg.get("features", {})
+if features.get("auto_compaction") is not False:
+    raise SystemExit("user auto_compaction override was clobbered")
+for key in ("fast_mode", "goals"):
+    if features.get(key) is not True:
+        raise SystemExit(f"missing common feature {key}")
+if features.get("hooks") is not False:
+    raise SystemExit("hooks should be false unless user overrides it")
+tui = cfg.get("tui", {})
+if tui.get("status_line") != ["model", "current-dir"]:
+    raise SystemExit("user status_line was clobbered")
+if tui.get("status_line_use_colors") is not False:
+    raise SystemExit("user status_line_use_colors was clobbered")
+if cfg.get("custom_section", {}).get("flag") != "survive":
+    raise SystemExit("unrelated user section was not preserved")
+print("OK: config mode preserves user common config")
 PY
 
 printf 'OK: fake API config contract passed\n'

@@ -153,6 +153,13 @@ HOME="$TMP/home" CODEX_HOME="$TMP/home/.codex" PATH="$TMP/home/.local/bin:$PATH"
     fail "installed launcher could not run --version"
   }
 
+assert_file_contains "$TMP/home/.codex/config.toml" 'model_auto_compact_token_limit = 220000'
+assert_file_contains "$TMP/home/.codex/config.toml" 'service_tier = "default"'
+assert_file_contains "$TMP/home/.codex/config.toml" 'auto_compaction = true'
+assert_file_contains "$TMP/home/.codex/config.toml" 'fast_mode = true'
+assert_file_contains "$TMP/home/.codex/config.toml" 'goals = true'
+assert_file_contains "$TMP/home/.codex/config.toml" 'status_line = ["model-with-reasoning", "current-dir", "context-remaining", "used-tokens", "total-input-tokens", "total-output-tokens", "fast-mode", "task-progress"]'
+
 (
   . "$SCRIPT_DIR/lib/codex-zh-common.sh"
   . "$SCRIPT_DIR/lib/codex-zh-config.sh"
@@ -166,6 +173,12 @@ HOME="$TMP/home" CODEX_HOME="$TMP/home/.codex" PATH="$TMP/home/.local/bin:$PATH"
 }
 
 printf '%s\n' "# user-edit-marker=must-survive-update" >> "$TMP/home/.codex/config.toml"
+sed \
+  -e 's/^model_reasoning_effort[[:space:]]*=.*/model_reasoning_effort = "high"/' \
+  -e 's/^model_auto_compact_token_limit[[:space:]]*=.*/model_auto_compact_token_limit = 210000/' \
+  -e 's/^status_line[[:space:]]*=.*/status_line = ["model", "current-dir"]/' \
+  "$TMP/home/.codex/config.toml" > "$TMP/home/.codex/config.toml.user-edit"
+mv "$TMP/home/.codex/config.toml.user-edit" "$TMP/home/.codex/config.toml"
 printf '%s\n' "user codex-home agents marker" > "$TMP/home/.codex/AGENTS.md"
 printf '%s\n' "user workdir agents marker" > "$TMP/home/AGENTS.md"
 {
@@ -190,6 +203,11 @@ assert_file_contains "$TMP/home/.codex/config.toml" "user-edit-marker=must-survi
 assert_file_contains "$TMP/home/.codex/AGENTS.md" "user codex-home agents marker"
 assert_file_contains "$TMP/home/AGENTS.md" "user workdir agents marker"
 assert_file_contains "$TMP/work/AGENTS.md" "user actual workdir agents marker"
+assert_file_contains "$TMP/home/.codex/config.toml" 'model_reasoning_effort = "high"'
+assert_file_contains "$TMP/home/.codex/config.toml" 'model_auto_compact_token_limit = 210000'
+assert_file_contains "$TMP/home/.codex/config.toml" 'status_line = ["model", "current-dir"]'
+assert_file_contains "$TMP/home/.codex/config.toml" 'fast_mode = true'
+assert_file_contains "$TMP/home/.codex/config.toml" 'goals = true'
 
 HOME="$TMP/home" \
 CODEX_HOME="$TMP/home/.codex" \
@@ -205,6 +223,12 @@ CODEX_ZH_DEFAULT_MODEL="$SWITCH1_MODEL" \
 
 assert_file_contains "$TMP/home/.codex/config.toml" "model = \"$SWITCH1_MODEL\""
 assert_file_not_contains "$TMP/home/.codex/config.toml" "可用模型"
+assert_file_contains "$TMP/home/.codex/config.toml" "user-edit-marker=must-survive-update"
+assert_file_contains "$TMP/home/.codex/config.toml" 'model_reasoning_effort = "high"'
+assert_file_contains "$TMP/home/.codex/config.toml" 'model_auto_compact_token_limit = 210000'
+assert_file_contains "$TMP/home/.codex/config.toml" 'status_line = ["model", "current-dir"]'
+assert_file_contains "$TMP/home/.codex/config.toml" 'fast_mode = true'
+assert_file_contains "$TMP/home/.codex/config.toml" 'goals = true'
 
 HOME="$TMP/home" CODEX_HOME="$TMP/home/.codex" PATH="$TMP/home/.local/bin:$PATH" \
   "$CODEX_LOCAL" profile-save switched >"$TMP/logs/profile-save.stdout" 2>"$TMP/logs/profile-save.stderr"
@@ -239,6 +263,7 @@ assert_file_contains "$TMP/work/AGENTS.md" "user actual workdir agents marker"
   --switch-index "$SWITCH3_INDEX" \
   --target-effort high \
   --effort-index 3 \
+  --test-fast \
   --transcript "$TMP/private/tui-transcript.log" \
   >"$TMP/logs/tui-driver.stdout" 2>"$TMP/logs/tui-driver.stderr" || {
     sed -n '1,200p' "$TMP/logs/tui-driver.stderr" >&2 || true
@@ -255,6 +280,7 @@ printf '%s\n' "OK: raw TUI transcript kept outside uploaded logs; proxy request 
 
 assert_file_contains "$TMP/logs/tui-driver.stdout" "OK: TUI repeated model/reasoning switches affected subsequent requests"
 assert_file_contains "$TMP/logs/tui-driver.stdout" "switches=3"
+assert_file_contains "$TMP/logs/tui-driver.stdout" "fast_checked=True"
 assert_file_contains "$TMP/home/.codex/config.toml" "model = \"$FINAL_SWITCH_MODEL\""
 assert_file_contains "$TMP/home/.codex/config.toml" 'model_reasoning_effort = "high"'
 

@@ -70,12 +70,13 @@ def assert_response_shape_safe(path, post):
             )
 
 
-def assert_post(path, post, expected_model, expected_effort):
+def assert_post(path, post, expected_model, expected_effort, expected_service_tier=None):
     assert_response_shape_safe(path, post)
     req = request_summary(post)
     model = req.get("model")
     reasoning = req.get("reasoning") or {}
     effort = reasoning.get("effort") if isinstance(reasoning, dict) else None
+    service_tier = req.get("service_tier")
     if model != expected_model:
         raise AssertionError(
             f"{path.name}: model should be {expected_model!r}, got {model!r}"
@@ -83,6 +84,11 @@ def assert_post(path, post, expected_model, expected_effort):
     if effort != expected_effort:
         raise AssertionError(
             f"{path.name}: reasoning effort should be {expected_effort!r}, got {effort!r}"
+        )
+    if expected_service_tier is not None and service_tier != expected_service_tier:
+        raise AssertionError(
+            f"{path.name}: service_tier should be {expected_service_tier!r}, "
+            f"got {service_tier!r}"
         )
 
 
@@ -291,6 +297,8 @@ def main():
     parser.add_argument("--switch-index", action="append", type=int, required=True)
     parser.add_argument("--target-effort", default="high")
     parser.add_argument("--effort-index", type=int, default=3)
+    parser.add_argument("--test-fast", action="store_true")
+    parser.add_argument("--fast-service-tier", default="priority")
     parser.add_argument("--transcript", required=True)
     args = parser.parse_args()
     if len(args.switch_model) != len(args.switch_index):
@@ -321,14 +329,39 @@ def main():
         first_path, first_post = posts[0]
         assert_post(first_path, first_post, args.initial_model, "medium")
         assert_workdir_agents_read(first_path, first_post)
+        expected_posts = 1
+
+        fast_checked = False
+        if args.test_fast:
+            session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
+            session.send_text_and_enter("/fast")
+            session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=20)
+            session.send_text_and_enter("Reply exactly OK. cloud e2e fast mode")
+            expected_posts += 1
+            posts = wait_for_posts(session, args.shape_dir, expected_posts, 180)
+            fast_path, fast_post = posts[expected_posts - 1]
+            assert_post(
+                fast_path,
+                fast_post,
+                args.initial_model,
+                "medium",
+                expected_service_tier=args.fast_service_tier,
+            )
+            assert_workdir_agents_read(fast_path, fast_post)
+            fast_checked = True
+
+            session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
+            session.send_text_and_enter("/fast")
+            session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=20)
 
         for idx, (model, model_index) in enumerate(
             zip(args.switch_model, args.switch_index), start=1
         ):
             switch_model(session, model, model_index, args.effort_index)
             session.send_text_and_enter(f"Reply exactly OK. cloud e2e after switch {idx}")
-            posts = wait_for_posts(session, args.shape_dir, idx + 1, 180)
-            path, post = posts[idx]
+            expected_posts += 1
+            posts = wait_for_posts(session, args.shape_dir, expected_posts, 180)
+            path, post = posts[expected_posts - 1]
             assert_post(path, post, model, args.target_effort)
             assert_workdir_agents_read(path, post)
 
@@ -341,7 +374,7 @@ def main():
     print(
         "OK: TUI repeated model/reasoning switches affected subsequent requests "
         f"({args.initial_model}/medium -> {final_model}/{args.target_effort}; "
-        f"switches={len(args.switch_model)})"
+        f"switches={len(args.switch_model)}; fast_checked={fast_checked})"
     )
 
 

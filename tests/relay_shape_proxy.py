@@ -100,6 +100,7 @@ def summarize_request(body):
         },
         "top_keys": sorted(payload.keys()),
         "model": payload.get("model"),
+        "service_tier": payload.get("service_tier"),
         "stream": payload.get("stream"),
         "parallel_tool_calls": payload.get("parallel_tool_calls"),
         "include": payload.get("include"),

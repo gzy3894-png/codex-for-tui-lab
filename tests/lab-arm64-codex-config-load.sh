@@ -23,6 +23,17 @@ trap ':' EXIT HUP INT TERM
   codex_config_write_third_party_config "http://127.0.0.1:9/v1" "sk-lab-fake" "gpt-5.5" "$TMP/models.txt"
 ) || fail "failed to generate test config"
 
+grep -F 'model_auto_compact_token_limit = 220000' "$TMP/home/.codex/config.toml" >/dev/null 2>&1 ||
+  fail "generated config missing common auto compact limit"
+grep -F 'fast_mode = true' "$TMP/home/.codex/config.toml" >/dev/null 2>&1 ||
+  fail "generated config missing fast_mode feature"
+grep -F 'goals = true' "$TMP/home/.codex/config.toml" >/dev/null 2>&1 ||
+  fail "generated config missing goals feature"
+grep -F 'status_line = ["model-with-reasoning", "current-dir", "context-remaining", "used-tokens", "total-input-tokens", "total-output-tokens", "fast-mode", "task-progress"]' "$TMP/home/.codex/config.toml" >/dev/null 2>&1 ||
+  fail "generated config missing status line template"
+grep -F '"id": "priority"' "$TMP/home/.codex/model_catalog.json" >/dev/null 2>&1 ||
+  fail "generated model catalog missing priority fast service tier"
+
 archive="codex-0.142.4-zh-aarch64-unknown-linux-musl.tar.gz"
 archive_url="https://github.com/gzy3894-png/codex-cli-zh-binary-skill/releases/download/codex-for-tui-v1.0.0/$archive"
 curl -fsSL "$archive_url" -o "$TMP/download/$archive"

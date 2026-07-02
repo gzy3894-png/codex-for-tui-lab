@@ -58,6 +58,21 @@ with open(cfg_path, "rb") as fh:
 model = cfg.get("model", "")
 if not model or "\n" in model or "可用模型" in model:
     raise SystemExit(f"invalid model value: {model!r}")
+if cfg.get("model_auto_compact_token_limit") != 220000:
+    raise SystemExit("common auto compact token limit should be 220000")
+if cfg.get("service_tier") != "default":
+    raise SystemExit("service_tier should default to explicit default")
+features = cfg.get("features", {})
+for key in ("auto_compaction", "fast_mode", "goals"):
+    if features.get(key) is not True:
+        raise SystemExit(f"features.{key} should be true")
+if features.get("hooks") is not False:
+    raise SystemExit("features.hooks should be false")
+tui = cfg.get("tui", {})
+if tui.get("status_line_use_colors") is not True:
+    raise SystemExit("tui.status_line_use_colors should be true")
+if not isinstance(tui.get("status_line"), list) or "fast-mode" not in tui["status_line"]:
+    raise SystemExit("tui.status_line should include fast-mode")
 with open(catalog_path, "r", encoding="utf-8") as fh:
     catalog = json.load(fh)
 for item in catalog.get("models", []):
@@ -72,6 +87,16 @@ for item in catalog.get("models", []):
         raise SystemExit(f"unexpected reasoning efforts: {efforts!r}")
     if item.get("default_verbosity") != "low":
         raise SystemExit("default_verbosity should be low")
+    if item.get("auto_compact_token_limit") != 220000:
+        raise SystemExit("auto_compact_token_limit should be 220000")
+    service_tiers = item.get("service_tiers")
+    if not isinstance(service_tiers, list) or not any(
+        isinstance(tier, dict)
+        and tier.get("id") == "priority"
+        and tier.get("name") == "Fast"
+        for tier in service_tiers
+    ):
+        raise SystemExit(f"model catalog missing priority fast tier: {service_tiers!r}")
     for level in levels:
         if not isinstance(level, dict):
             raise SystemExit(
