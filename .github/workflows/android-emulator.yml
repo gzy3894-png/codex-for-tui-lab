@@ -103,14 +103,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           emulator-boot-timeout: 1200
-          pre-emulator-launch-script: |
-            mkdir -p "$CODEX_TUI_LAB_ANDROID_LOG_ROOT/logs"
-            {
-              date -u
-              echo "ANDROID_AVD_HOME=${ANDROID_AVD_HOME:-}"
-              ls -l /dev/kvm || true
-              find "${ANDROID_AVD_HOME:-$HOME/.android/avd}" -maxdepth 3 -type f -name config.ini -print -exec sed -n '1,220p' {} \; || true
-            } > "$CODEX_TUI_LAB_ANDROID_LOG_ROOT/logs/pre-emulator-launch.log"
+          pre-emulator-launch-script: sh tests/android-pre-emulator-log.sh
           script: sh tests/lab-android-emulator-smoke.sh "$GITHUB_WORKSPACE/_source"
 
       - name: Upload Android logs
