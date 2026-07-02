@@ -76,6 +76,7 @@ def assert_post(path, post, expected_model, expected_effort):
 class PtySession:
     def __init__(self, argv, env, cwd, transcript_path, rows=40, cols=140):
         self.master_fd, slave_fd = pty.openpty()
+        self.transcript_path = Path(transcript_path)
         self.set_window_size(slave_fd, rows, cols)
         env = env.copy()
         env["LINES"] = str(rows)
@@ -151,12 +152,32 @@ class PtySession:
     def send_enter(self):
         self.send_bytes(b"\r")
 
+    def send_escape(self):
+        self.send_bytes(b"\x1b")
+
+    def clear_input(self):
+        self.send_bytes(b"\x15")
+
     def send_text_and_enter(self, text):
         self.send_text(text)
         self.send_enter()
 
     def send(self, text):
         self.send_text(text)
+
+    def wait_for_transcript_text(self, text, timeout=10):
+        needle = text.encode("utf-8")
+        deadline = time.time() + timeout
+        while time.time() < deadline and self.proc.poll() is None:
+            self.read_available(0.2)
+            self.transcript.flush()
+            try:
+                haystack = self.transcript_path.read_bytes()
+            except OSError:
+                haystack = b""
+            if needle in haystack:
+                return
+        raise TimeoutError(f"timed out waiting for TUI text {text!r}")
 
     def close(self):
         try:
@@ -234,10 +255,16 @@ def main():
         first_path, first_post = posts[0]
         assert_post(first_path, first_post, args.initial_model, "medium")
 
+        session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=5)
+        session.send_escape()
         session.drain_until_quiet(min_seconds=1, quiet_seconds=0.5, timeout=20)
+        session.clear_input()
+        session.drain_until_quiet(min_seconds=0.3, quiet_seconds=0.2, timeout=3)
         session.send_text_and_enter("/model")
+        session.wait_for_transcript_text(args.target_model, timeout=20)
         session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
         session.send_text("2")
+        session.wait_for_transcript_text("High", timeout=20)
         session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
         session.send_text("3")
         session.drain_until_quiet(min_seconds=1, quiet_seconds=0.5, timeout=20)

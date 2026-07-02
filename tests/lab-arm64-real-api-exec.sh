@@ -158,6 +158,11 @@ HOME="$TMP/home" CODEX_HOME="$TMP/home/.codex" PATH="$TMP/home/.local/bin:$PATH"
 printf '%s\n' "# user-edit-marker=must-survive-update" >> "$TMP/home/.codex/config.toml"
 printf '%s\n' "user codex-home agents marker" > "$TMP/home/.codex/AGENTS.md"
 printf '%s\n' "user workdir agents marker" > "$TMP/home/AGENTS.md"
+{
+  printf '%s\n' "user actual workdir agents marker"
+  printf '%s\n' "For cloud E2E prompts that ask to reply exactly OK, do not run commands or use tools."
+  printf '%s\n' "Answer with exactly OK."
+} > "$TMP/work/AGENTS.md"
 before_hash="$(sha256sum "$BIN" | awk '{print $1}')"
 
 HOME="$TMP/home" \
@@ -174,6 +179,7 @@ after_hash="$(sha256sum "$BIN" | awk '{print $1}')"
 assert_file_contains "$TMP/home/.codex/config.toml" "user-edit-marker=must-survive-update"
 assert_file_contains "$TMP/home/.codex/AGENTS.md" "user codex-home agents marker"
 assert_file_contains "$TMP/home/AGENTS.md" "user workdir agents marker"
+assert_file_contains "$TMP/work/AGENTS.md" "user actual workdir agents marker"
 
 HOME="$TMP/home" \
 CODEX_HOME="$TMP/home/.codex" \
@@ -201,6 +207,7 @@ HOME="$TMP/home" CODEX_HOME="$TMP/home/.codex" PATH="$TMP/home/.local/bin:$PATH"
 assert_file_contains "$TMP/home/.codex/config.toml" "model = \"$INITIAL_MODEL\""
 assert_file_contains "$TMP/home/.codex/AGENTS.md" "user codex-home agents marker"
 assert_file_contains "$TMP/home/AGENTS.md" "user workdir agents marker"
+assert_file_contains "$TMP/work/AGENTS.md" "user actual workdir agents marker"
 
 (
   cd "$TMP/work"
