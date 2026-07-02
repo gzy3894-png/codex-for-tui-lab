@@ -16,6 +16,11 @@ if grep -R -n -F '.codex' .github/workflows >/tmp/codex-tui-lab-artifact-codex-p
   fail "workflow artifacts must not upload .codex data"
 fi
 
+if grep -n -F -- '--transcript "$TMP/logs' tests/lab-arm64-real-api-exec.sh >/tmp/codex-tui-lab-raw-transcript-paths.txt 2>/dev/null; then
+  cat /tmp/codex-tui-lab-raw-transcript-paths.txt >&2
+  fail "raw TUI transcript must stay outside uploaded logs"
+fi
+
 required='logs/**'
 for workflow in .github/workflows/contracts.yml \
   .github/workflows/arm64-config-load.yml \

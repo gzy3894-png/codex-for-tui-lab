@@ -39,7 +39,7 @@ assert_file_not_contains() {
 [ -n "${KRILL_API_KEY:-}" ] || fail "missing KRILL_API_KEY secret"
 
 rm -rf "$TMP"
-mkdir -p "$TMP/home" "$TMP/logs/proxy-shapes" "$TMP/work"
+mkdir -p "$TMP/home" "$TMP/logs/proxy-shapes" "$TMP/private" "$TMP/work"
 trap 'kill "$proxy_pid" 2>/dev/null || true' EXIT HUP INT TERM
 
 "$PYTHON" "$LAB_DIR/tests/relay_shape_proxy.py" \
@@ -223,7 +223,7 @@ assert_file_contains "$TMP/work/AGENTS.md" "user actual workdir agents marker"
   --initial-model "$INITIAL_MODEL" \
   --target-model "$TARGET_MODEL" \
   --target-effort high \
-  --transcript "$TMP/logs/tui-transcript.log" \
+  --transcript "$TMP/private/tui-transcript.log" \
   >"$TMP/logs/tui-driver.stdout" 2>"$TMP/logs/tui-driver.stderr" || {
     sed -n '1,200p' "$TMP/logs/tui-driver.stderr" >&2 || true
     printf '%s\n' "--- sanitized request shapes ---" >&2
@@ -233,6 +233,9 @@ assert_file_contains "$TMP/work/AGENTS.md" "user actual workdir agents marker"
     done
     fail "interactive TUI model/reasoning switch flow failed"
   }
+
+printf '%s\n' "OK: raw TUI transcript kept outside uploaded logs; proxy request shapes are redacted" \
+  > "$TMP/logs/tui-transcript-policy.txt"
 
 assert_file_contains "$TMP/logs/tui-driver.stdout" "OK: TUI model/reasoning switch affected next request"
 assert_file_contains "$TMP/home/.codex/config.toml" "model = \"$TARGET_MODEL\""
