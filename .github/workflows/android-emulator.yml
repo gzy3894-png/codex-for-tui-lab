@@ -63,6 +63,8 @@ jobs:
 
       - name: Launch APK in emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CODEX_TUI_LAB_ANDROID_LOG_ROOT: ${{ github.workspace }}/android-emulator-logs
         with:
           api-level: 35
           target: google_apis
@@ -76,5 +78,5 @@ jobs:
         with:
           name: android-emulator-logs
           path: |
-            /tmp/codex-tui-lab-android-*/logs/**
-          if-no-files-found: ignore
+            android-emulator-logs/logs/**
+          if-no-files-found: error

@@ -2,7 +2,7 @@
 set -eu
 
 SOURCE_DIR="${1:?usage: lab-android-emulator-smoke.sh SOURCE_DIR}"
-TMP="${TMPDIR:-/tmp}/codex-tui-lab-android.$$"
+TMP="${CODEX_TUI_LAB_ANDROID_LOG_ROOT:-${TMPDIR:-/tmp}/codex-tui-lab-android-$$}"
 mkdir -p "$TMP/logs"
 trap ':' EXIT HUP INT TERM
 
