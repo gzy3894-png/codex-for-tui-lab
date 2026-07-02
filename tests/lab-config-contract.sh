@@ -227,6 +227,10 @@ name = "stale"
 base_url = "https://stale.invalid/v1"
 wire_api = "responses"
 requires_openai_auth = false
+
+[model_providers.custom.auth]
+command = "/stale/provider-api-key"
+# user-tail-marker=must-survive-provider-rewrite
 EOF
 printf '%s\n' "gpt-5.4" "gpt-5.5" > "$TMP/preserve-models.txt"
 (
@@ -252,8 +256,10 @@ assert_file_contains "$PCFG" 'status_line = ["model", "current-dir"]'
 assert_file_contains "$PCFG" 'status_line_use_colors = false'
 assert_file_contains "$PCFG" '[custom_section]'
 assert_file_contains "$PCFG" 'flag = "survive"'
+assert_file_contains "$PCFG" '# user-tail-marker=must-survive-provider-rewrite'
 assert_file_contains "$PCFG" 'base_url = "http://127.0.0.1:'"$PORT"'/v1"'
 assert_file_not_contains "$PCFG" "https://stale.invalid/v1"
+assert_file_not_contains "$PCFG" "/stale/provider-api-key"
 assert_file_not_contains "$PCFG" "sk-lab-fake"
 
 "$PYTHON" - "$PCFG" <<'PY'

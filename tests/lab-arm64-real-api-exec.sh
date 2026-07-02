@@ -179,6 +179,7 @@ sed \
   -e 's/^status_line[[:space:]]*=.*/status_line = ["model", "current-dir"]/' \
   "$TMP/home/.codex/config.toml" > "$TMP/home/.codex/config.toml.user-edit"
 mv "$TMP/home/.codex/config.toml.user-edit" "$TMP/home/.codex/config.toml"
+assert_file_contains "$TMP/home/.codex/config.toml" "user-edit-marker=must-survive-update"
 printf '%s\n' "user codex-home agents marker" > "$TMP/home/.codex/AGENTS.md"
 printf '%s\n' "user workdir agents marker" > "$TMP/home/AGENTS.md"
 {
