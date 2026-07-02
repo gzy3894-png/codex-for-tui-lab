@@ -55,7 +55,9 @@ jobs:
             "build-tools;36.0.0" \
             "cmake;3.22.1" \
             "ndk;29.0.13846066"
+          set +o pipefail
           yes | sdkmanager --licenses
+          set -o pipefail
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:assembleDebug
 
