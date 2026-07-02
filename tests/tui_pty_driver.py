@@ -181,7 +181,7 @@ def main():
     )
 
     session = PtySession(
-        [args.bin, "--skip-git-repo-check"],
+        [args.bin],
         env=env,
         cwd=args.work_dir,
         transcript_path=args.transcript,
