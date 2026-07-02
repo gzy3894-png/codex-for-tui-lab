@@ -49,4 +49,3 @@ A candidate source ref is not acceptable unless:
 4. `codex 更新` is atomic: if any file update fails, already installed scripts are not left half-updated.
 5. The real ARM64 Codex binary does not fail with `failed to parse model_catalog_json`.
 6. The APK builds and starts in the Android emulator.
-
