@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 import argparse
+import fcntl
 import json
 import os
 import pty
 import select
 import signal
+import struct
 import subprocess
 import sys
 import time
+import termios
 from pathlib import Path
 
 
@@ -71,8 +74,12 @@ def assert_post(path, post, expected_model, expected_effort):
 
 
 class PtySession:
-    def __init__(self, argv, env, cwd, transcript_path):
+    def __init__(self, argv, env, cwd, transcript_path, rows=40, cols=140):
         self.master_fd, slave_fd = pty.openpty()
+        self.set_window_size(slave_fd, rows, cols)
+        env = env.copy()
+        env["LINES"] = str(rows)
+        env["COLUMNS"] = str(cols)
         self.proc = subprocess.Popen(
             argv,
             cwd=cwd,
@@ -86,6 +93,13 @@ class PtySession:
         os.close(slave_fd)
         os.set_blocking(self.master_fd, False)
         self.transcript = open(transcript_path, "wb")
+
+    def set_window_size(self, fd, rows, cols):
+        try:
+            winsize = struct.pack("HHHH", rows, cols, 0, 0)
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
+        except OSError:
+            pass
 
     def read_available(self, timeout=0.1):
         chunks = []
@@ -113,13 +127,40 @@ class PtySession:
         while time.time() < end and self.proc.poll() is None:
             self.read_available(0.2)
 
-    def send(self, text):
-        os.write(self.master_fd, text.encode("utf-8"))
+    def drain_until_quiet(self, min_seconds=0.5, quiet_seconds=0.5, timeout=10):
+        start = time.time()
+        deadline = start + timeout
+        quiet_since = None
+        while time.time() < deadline and self.proc.poll() is None:
+            data = self.read_available(0.2)
+            now = time.time()
+            if data:
+                quiet_since = None
+            elif quiet_since is None:
+                quiet_since = now
+            elif now - start >= min_seconds and now - quiet_since >= quiet_seconds:
+                return
+
+    def send_bytes(self, data):
+        os.write(self.master_fd, data)
         self.read_available(0.2)
+
+    def send_text(self, text):
+        self.send_bytes(text.encode("utf-8"))
+
+    def send_enter(self):
+        self.send_bytes(b"\r")
+
+    def send_text_and_enter(self, text):
+        self.send_text(text)
+        self.send_enter()
+
+    def send(self, text):
+        self.send_text(text)
 
     def close(self):
         try:
-            self.send("\x03")
+            self.send_bytes(b"\x03")
             time.sleep(0.5)
             self.read_available(0.5)
         except Exception:
@@ -187,20 +228,20 @@ def main():
         transcript_path=args.transcript,
     )
     try:
-        session.drain(3)
-        session.send("Reply exactly OK. cloud e2e first\n")
+        session.drain_until_quiet(min_seconds=2, quiet_seconds=1, timeout=30)
+        session.send_text_and_enter("Reply exactly OK. cloud e2e first")
         posts = wait_for_posts(session, args.shape_dir, 1, 180)
         first_path, first_post = posts[0]
         assert_post(first_path, first_post, args.initial_model, "medium")
 
-        session.drain(3)
-        session.send("/model\n")
-        session.drain(1)
-        session.send("2")
-        session.drain(1)
-        session.send("3")
-        session.drain(2)
-        session.send("Reply exactly OK. cloud e2e after switch\n")
+        session.drain_until_quiet(min_seconds=1, quiet_seconds=0.5, timeout=20)
+        session.send_text_and_enter("/model")
+        session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
+        session.send_text("2")
+        session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
+        session.send_text("3")
+        session.drain_until_quiet(min_seconds=1, quiet_seconds=0.5, timeout=20)
+        session.send_text_and_enter("Reply exactly OK. cloud e2e after switch")
         posts = wait_for_posts(session, args.shape_dir, 2, 180)
         second_path, second_post = posts[1]
         assert_post(second_path, second_post, args.target_model, args.target_effort)
