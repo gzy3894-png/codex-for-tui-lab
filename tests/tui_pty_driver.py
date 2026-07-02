@@ -73,6 +73,17 @@ def assert_post(path, post, expected_model, expected_effort):
             )
 
 
+def assert_workdir_agents_read(path, post):
+    req = request_summary(post)
+    marker_hits = req.get("marker_hits")
+    if not isinstance(marker_hits, dict):
+        raise AssertionError(f"{path.name}: request shape did not include marker_hits")
+    if marker_hits.get("workdir_agents_marker") is not True:
+        raise AssertionError(f"{path.name}: workdir AGENTS.md marker was not read")
+    if marker_hits.get("workdir_agents_policy") is not True:
+        raise AssertionError(f"{path.name}: workdir AGENTS.md policy was not read")
+
+
 class PtySession:
     def __init__(self, argv, env, cwd, transcript_path, rows=40, cols=140):
         self.master_fd, slave_fd = pty.openpty()
@@ -270,6 +281,7 @@ def main():
         posts = wait_for_posts(session, args.shape_dir, 1, 180)
         first_path, first_post = posts[0]
         assert_post(first_path, first_post, args.initial_model, "medium")
+        assert_workdir_agents_read(first_path, first_post)
 
         session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=5)
         session.send_escape()
@@ -288,6 +300,7 @@ def main():
         posts = wait_for_posts(session, args.shape_dir, 2, 180)
         second_path, second_post = posts[1]
         assert_post(second_path, second_post, args.target_model, args.target_effort)
+        assert_workdir_agents_read(second_path, second_post)
     finally:
         session.close()
 

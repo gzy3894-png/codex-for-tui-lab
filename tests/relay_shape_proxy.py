@@ -10,6 +10,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 
+REQUEST_MARKERS = {
+    "codex_home_agents_marker": "user codex-home agents marker",
+    "home_agents_marker": "user workdir agents marker",
+    "workdir_agents_marker": "user actual workdir agents marker",
+    "workdir_agents_policy": "For cloud E2E prompts that ask to reply exactly OK",
+}
+
+
 def normalize_backend_base(value):
     value = value.strip().rstrip("/")
     if not value:
@@ -63,6 +71,16 @@ def summarize_input_item(item):
     return summary
 
 
+def contains_text(value, needle):
+    if isinstance(value, str):
+        return needle in value
+    if isinstance(value, list):
+        return any(contains_text(item, needle) for item in value)
+    if isinstance(value, dict):
+        return any(contains_text(item, needle) for item in value.values())
+    return False
+
+
 def summarize_request(body):
     try:
         payload = json.loads(body.decode("utf-8")) if body else None
@@ -76,6 +94,10 @@ def summarize_request(body):
     text = payload.get("text")
     return {
         "body_json": True,
+        "marker_hits": {
+            name: contains_text(payload, marker)
+            for name, marker in REQUEST_MARKERS.items()
+        },
         "top_keys": sorted(payload.keys()),
         "model": payload.get("model"),
         "stream": payload.get("stream"),
