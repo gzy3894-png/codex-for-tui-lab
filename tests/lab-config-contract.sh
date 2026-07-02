@@ -119,6 +119,19 @@ for item in models:
             "invalid web_search_tool_type for current Codex: "
             f"{value!r}; expected one of {sorted(allowed_web_search_types)}"
         )
+    levels = item.get("supported_reasoning_levels")
+    if not isinstance(levels, list):
+        raise SystemExit(f"supported_reasoning_levels should be a list: {item!r}")
+    for level in levels:
+        if not isinstance(level, dict):
+            raise SystemExit(
+                "supported_reasoning_levels entries must be objects with "
+                f"effort/description, got {level!r}"
+            )
+        if not isinstance(level.get("effort"), str) or not level["effort"]:
+            raise SystemExit(f"reasoning level missing effort: {level!r}")
+        if not isinstance(level.get("description"), str):
+            raise SystemExit(f"reasoning level missing description: {level!r}")
 print("OK: config and model catalog contract passed")
 PY
 

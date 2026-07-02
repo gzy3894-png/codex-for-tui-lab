@@ -60,6 +60,19 @@ for item in catalog.get("models", []):
     value = item.get("web_search_tool_type")
     if value is not None and value not in {"text", "text_and_image"}:
         raise SystemExit(f"invalid web_search_tool_type: {value!r}")
+    levels = item.get("supported_reasoning_levels")
+    if not isinstance(levels, list):
+        raise SystemExit(f"supported_reasoning_levels should be a list: {item!r}")
+    for level in levels:
+        if not isinstance(level, dict):
+            raise SystemExit(
+                "supported_reasoning_levels entries must be objects with "
+                f"effort/description, got {level!r}"
+            )
+        if not isinstance(level.get("effort"), str) or not level["effort"]:
+            raise SystemExit(f"reasoning level missing effort: {level!r}")
+        if not isinstance(level.get("description"), str):
+            raise SystemExit(f"reasoning level missing description: {level!r}")
 print("OK: real API rendered config passed")
 PY
 
