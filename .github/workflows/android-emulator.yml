@@ -17,6 +17,8 @@ jobs:
     name: Build and launch debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      CODEX_TUI_LAB_ANDROID_LOG_ROOT: ${{ github.workspace }}/android-emulator-logs
 
     steps:
       - name: Checkout lab
@@ -45,6 +47,38 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Initialize Android log directory
+        shell: bash
+        run: |
+          mkdir -p "$CODEX_TUI_LAB_ANDROID_LOG_ROOT/logs"
+          {
+            date -u
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            uname -a
+            groups || true
+            ls -l /dev/kvm || true
+            df -h "$GITHUB_WORKSPACE" || true
+            free -m || true
+          } > "$CODEX_TUI_LAB_ANDROID_LOG_ROOT/logs/runner-preflight.log"
+
+      - name: Enable KVM
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+              sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+            ls -l /dev/kvm | tee -a "$CODEX_TUI_LAB_ANDROID_LOG_ROOT/logs/runner-preflight.log"
+          else
+            echo "WARN: /dev/kvm is not present" |
+              tee -a "$CODEX_TUI_LAB_ANDROID_LOG_ROOT/logs/runner-preflight.log"
+          fi
+
       - name: Build debug APK
         working-directory: _source/android-app
         shell: bash
@@ -63,13 +97,20 @@ jobs:
 
       - name: Launch APK in emulator
         uses: reactivecircus/android-emulator-runner@v2
-        env:
-          CODEX_TUI_LAB_ANDROID_LOG_ROOT: ${{ github.workspace }}/android-emulator-logs
         with:
           api-level: 35
           target: google_apis
           arch: x86_64
           profile: pixel_6
+          emulator-boot-timeout: 1200
+          pre-emulator-launch-script: |
+            mkdir -p "$CODEX_TUI_LAB_ANDROID_LOG_ROOT/logs"
+            {
+              date -u
+              echo "ANDROID_AVD_HOME=${ANDROID_AVD_HOME:-}"
+              ls -l /dev/kvm || true
+              find "${ANDROID_AVD_HOME:-$HOME/.android/avd}" -maxdepth 3 -type f -name config.ini -print -exec sed -n '1,220p' {} \; || true
+            } > "$CODEX_TUI_LAB_ANDROID_LOG_ROOT/logs/pre-emulator-launch.log"
           script: sh tests/lab-android-emulator-smoke.sh "$GITHUB_WORKSPACE/_source"
 
       - name: Upload Android logs
