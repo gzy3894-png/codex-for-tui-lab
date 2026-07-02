@@ -179,6 +179,22 @@ class PtySession:
                 return
         raise TimeoutError(f"timed out waiting for TUI text {text!r}")
 
+    def wait_for_any_transcript_text(self, texts, timeout=10):
+        needles = [(text, text.encode("utf-8")) for text in texts]
+        deadline = time.time() + timeout
+        while time.time() < deadline and self.proc.poll() is None:
+            self.read_available(0.2)
+            self.transcript.flush()
+            try:
+                haystack = self.transcript_path.read_bytes()
+            except OSError:
+                haystack = b""
+            for text, needle in needles:
+                if needle in haystack:
+                    return text
+        choices = ", ".join(repr(text) for text in texts)
+        raise TimeoutError(f"timed out waiting for any TUI text: {choices}")
+
     def close(self):
         try:
             self.send_bytes(b"\x03")
@@ -264,7 +280,7 @@ def main():
         session.wait_for_transcript_text(args.target_model, timeout=20)
         session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
         session.send_text("2")
-        session.wait_for_transcript_text("High", timeout=20)
+        session.wait_for_any_transcript_text(["High", "高"], timeout=20)
         session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
         session.send_text("3")
         session.drain_until_quiet(min_seconds=1, quiet_seconds=0.5, timeout=20)
