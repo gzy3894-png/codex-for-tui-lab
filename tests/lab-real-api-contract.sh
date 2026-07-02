@@ -67,6 +67,11 @@ for item in catalog.get("models", []):
     levels = item.get("supported_reasoning_levels")
     if not isinstance(levels, list):
         raise SystemExit(f"supported_reasoning_levels should be a list: {item!r}")
+    efforts = [level.get("effort") for level in levels if isinstance(level, dict)]
+    if efforts != ["low", "medium", "high", "xhigh"]:
+        raise SystemExit(f"unexpected reasoning efforts: {efforts!r}")
+    if item.get("default_verbosity") != "low":
+        raise SystemExit("default_verbosity should be low")
     for level in levels:
         if not isinstance(level, dict):
             raise SystemExit(

@@ -19,6 +19,7 @@ fi
 required='logs/**'
 for workflow in .github/workflows/contracts.yml \
   .github/workflows/arm64-config-load.yml \
+  .github/workflows/arm64-real-api-exec.yml \
   .github/workflows/real-api.yml \
   .github/workflows/android-emulator.yml
 do
