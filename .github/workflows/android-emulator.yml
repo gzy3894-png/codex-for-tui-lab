@@ -74,5 +74,5 @@ jobs:
         with:
           name: android-emulator-logs
           path: |
-            /tmp/codex-tui-lab-android-*/**/*
+            /tmp/codex-tui-lab-android-*/logs/**
           if-no-files-found: ignore

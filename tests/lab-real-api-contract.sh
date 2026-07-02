@@ -43,6 +43,10 @@ if grep -F "$KRILL_API_KEY" "$CFG" >/dev/null 2>&1; then
   fail "API key leaked into config.toml"
 fi
 
+if grep -R -q -F -- "$KRILL_API_KEY" "$TMP/logs" >/dev/null 2>&1; then
+  fail "API key leaked into real API logs"
+fi
+
 "$PYTHON" - "$CFG" "$CATALOG" <<'PY'
 import json
 import sys

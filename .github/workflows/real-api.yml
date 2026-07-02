@@ -44,5 +44,5 @@ jobs:
         with:
           name: real-api-contract-logs
           path: |
-            /tmp/codex-tui-lab-*/**/*
+            /tmp/codex-tui-lab-*/logs/**
           if-no-files-found: ignore

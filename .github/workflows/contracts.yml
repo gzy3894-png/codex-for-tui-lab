@@ -49,11 +49,15 @@ jobs:
         shell: bash
         run: sh tests/lab-update-atomic-contract.sh "$GITHUB_WORKSPACE/_source"
 
+      - name: Artifact safety guard
+        shell: bash
+        run: sh tests/lab-artifact-safety-guard.sh
+
       - name: Upload contract logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: contract-logs
           path: |
-            /tmp/codex-tui-lab-*/**/*
+            /tmp/codex-tui-lab-*/logs/**
           if-no-files-found: ignore
