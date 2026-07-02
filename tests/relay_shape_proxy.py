@@ -129,6 +129,27 @@ def summarize_request(body):
     }
 
 
+def summarize_response_json(body):
+    try:
+        payload = json.loads(body.decode("utf-8")) if body else None
+    except Exception as exc:
+        return {"body_json": False, "error": str(exc)}
+    if not isinstance(payload, dict):
+        return {"body_json": True, "json_type": type(payload).__name__}
+    error = payload.get("error")
+    if isinstance(error, dict):
+        return {
+            "body_json": True,
+            "error": {
+                "message": error.get("message"),
+                "type": error.get("type"),
+                "param": error.get("param"),
+                "code": error.get("code"),
+            },
+        }
+    return {"body_json": True, "top_keys": sorted(payload.keys())}
+
+
 class Handler(BaseHTTPRequestHandler):
     backend_base = ""
     log_dir = ""
@@ -211,7 +232,7 @@ class Handler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as exc:
             error_body = exc.read()
             shape["upstream_status"] = exc.code
-            shape["upstream_error_json"] = summarize_request(error_body)
+            shape["upstream_error"] = summarize_response_json(error_body)
             self.write_log(shape)
             self.send_response(exc.code)
             for key, value in exc.headers.items():

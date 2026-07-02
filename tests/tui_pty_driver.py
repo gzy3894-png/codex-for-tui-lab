@@ -34,12 +34,20 @@ def request_summary(post):
     return req if isinstance(req, dict) else {}
 
 
-def assert_post(path, post, expected_model, expected_effort):
+def upstream_error_summary(post):
+    for key in ("upstream_error", "upstream_error_json"):
+        value = post.get(key)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def assert_response_shape_safe(path, post):
     status = post.get("upstream_status")
     if not isinstance(status, int) or not (200 <= status < 300):
         raise AssertionError(
             f"{path.name}: upstream status should be 2xx, got {status!r}; "
-            f"error={post.get('upstream_error_json')!r}"
+            f"error={upstream_error_summary(post)!r}"
         )
     if post.get("response_complete") is not True:
         raise AssertionError(f"{path.name}: upstream response did not complete")
@@ -47,17 +55,6 @@ def assert_post(path, post, expected_model, expected_effort):
         raise AssertionError(f"{path.name}: upstream response was empty")
 
     req = request_summary(post)
-    model = req.get("model")
-    reasoning = req.get("reasoning") or {}
-    effort = reasoning.get("effort") if isinstance(reasoning, dict) else None
-    if model != expected_model:
-        raise AssertionError(
-            f"{path.name}: model should be {expected_model!r}, got {model!r}"
-        )
-    if effort != expected_effort:
-        raise AssertionError(
-            f"{path.name}: reasoning effort should be {expected_effort!r}, got {effort!r}"
-        )
     items = req.get("input_items")
     if not isinstance(items, list) or not items:
         raise AssertionError(f"{path.name}: request input summary is empty")
@@ -71,6 +68,22 @@ def assert_post(path, post, expected_model, expected_effort):
                 f"{path.name}: input[{idx}] type {item_type!r} carries "
                 f"content_len={content_len}; this matches the relay 400 class"
             )
+
+
+def assert_post(path, post, expected_model, expected_effort):
+    assert_response_shape_safe(path, post)
+    req = request_summary(post)
+    model = req.get("model")
+    reasoning = req.get("reasoning") or {}
+    effort = reasoning.get("effort") if isinstance(reasoning, dict) else None
+    if model != expected_model:
+        raise AssertionError(
+            f"{path.name}: model should be {expected_model!r}, got {model!r}"
+        )
+    if effort != expected_effort:
+        raise AssertionError(
+            f"{path.name}: reasoning effort should be {expected_effort!r}, got {effort!r}"
+        )
 
 
 def assert_workdir_agents_read(path, post):
@@ -246,6 +259,26 @@ def wait_for_posts(session, shape_dir, count, timeout):
     raise TimeoutError(f"timed out waiting for {count} POST /responses logs; saw {last_seen}")
 
 
+def open_model_picker(session, model):
+    session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=5)
+    session.send_escape()
+    session.drain_until_quiet(min_seconds=1, quiet_seconds=0.5, timeout=20)
+    session.clear_input()
+    session.drain_until_quiet(min_seconds=0.3, quiet_seconds=0.2, timeout=3)
+    session.send_text_and_enter("/model")
+    session.wait_for_transcript_text(model, timeout=20)
+    session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
+
+
+def switch_model(session, model, model_index, effort_index):
+    open_model_picker(session, model)
+    session.send_text(str(model_index))
+    session.wait_for_any_transcript_text(["High", "高"], timeout=20)
+    session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
+    session.send_text(str(effort_index))
+    session.drain_until_quiet(min_seconds=1, quiet_seconds=0.5, timeout=20)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bin", required=True)
@@ -254,10 +287,16 @@ def main():
     parser.add_argument("--work-dir", required=True)
     parser.add_argument("--shape-dir", required=True)
     parser.add_argument("--initial-model", required=True)
-    parser.add_argument("--target-model", required=True)
+    parser.add_argument("--switch-model", action="append", required=True)
+    parser.add_argument("--switch-index", action="append", type=int, required=True)
     parser.add_argument("--target-effort", default="high")
+    parser.add_argument("--effort-index", type=int, default=3)
     parser.add_argument("--transcript", required=True)
     args = parser.parse_args()
+    if len(args.switch_model) != len(args.switch_index):
+        raise ValueError("--switch-model and --switch-index counts must match")
+    if len(args.switch_model) < 3:
+        raise ValueError("cloud gate must exercise at least three in-session model switches")
 
     env = os.environ.copy()
     env.update(
@@ -283,30 +322,26 @@ def main():
         assert_post(first_path, first_post, args.initial_model, "medium")
         assert_workdir_agents_read(first_path, first_post)
 
-        session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=5)
-        session.send_escape()
-        session.drain_until_quiet(min_seconds=1, quiet_seconds=0.5, timeout=20)
-        session.clear_input()
-        session.drain_until_quiet(min_seconds=0.3, quiet_seconds=0.2, timeout=3)
-        session.send_text_and_enter("/model")
-        session.wait_for_transcript_text(args.target_model, timeout=20)
-        session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
-        session.send_text("2")
-        session.wait_for_any_transcript_text(["High", "高"], timeout=20)
-        session.drain_until_quiet(min_seconds=0.5, quiet_seconds=0.3, timeout=10)
-        session.send_text("3")
-        session.drain_until_quiet(min_seconds=1, quiet_seconds=0.5, timeout=20)
-        session.send_text_and_enter("Reply exactly OK. cloud e2e after switch")
-        posts = wait_for_posts(session, args.shape_dir, 2, 180)
-        second_path, second_post = posts[1]
-        assert_post(second_path, second_post, args.target_model, args.target_effort)
-        assert_workdir_agents_read(second_path, second_post)
+        for idx, (model, model_index) in enumerate(
+            zip(args.switch_model, args.switch_index), start=1
+        ):
+            switch_model(session, model, model_index, args.effort_index)
+            session.send_text_and_enter(f"Reply exactly OK. cloud e2e after switch {idx}")
+            posts = wait_for_posts(session, args.shape_dir, idx + 1, 180)
+            path, post = posts[idx]
+            assert_post(path, post, model, args.target_effort)
+            assert_workdir_agents_read(path, post)
+
+        for path, post in load_posts(args.shape_dir):
+            assert_response_shape_safe(path, post)
     finally:
         session.close()
 
+    final_model = args.switch_model[-1]
     print(
-        "OK: TUI model/reasoning switch affected next request "
-        f"({args.initial_model}/medium -> {args.target_model}/{args.target_effort})"
+        "OK: TUI repeated model/reasoning switches affected subsequent requests "
+        f"({args.initial_model}/medium -> {final_model}/{args.target_effort}; "
+        f"switches={len(args.switch_model)})"
     )
 
 

@@ -92,20 +92,30 @@ text_ids = [
 if not text_ids:
     raise SystemExit("model list has no non-image text model")
 initial = requested if requested in text_ids else text_ids[0]
-target = next((item for item in text_ids if item != initial), None)
-if target is None:
+others = [item for item in text_ids if item != initial]
+if not others:
     raise SystemExit("model list has only one usable text model; cannot test TUI switch")
+selected = [initial] + others[:2]
+if len(selected) >= 3:
+    switches = [selected[1], selected[2], selected[0]]
+else:
+    switches = [selected[1], selected[0], selected[1]]
 with open(selected_path, "w", encoding="utf-8") as fh:
-    fh.write(initial + "\n")
-    fh.write(target + "\n")
+    for model in selected:
+        fh.write(model + "\n")
 print("INITIAL_MODEL=" + shlex.quote(initial))
-print("TARGET_MODEL=" + shlex.quote(target))
+for idx, model in enumerate(switches, start=1):
+    print(f"SWITCH{idx}_MODEL=" + shlex.quote(model))
+    print(f"SWITCH{idx}_INDEX=" + str(selected.index(model) + 1))
+print("FINAL_SWITCH_MODEL=" + shlex.quote(switches[-1]))
 PY
 
 # shellcheck disable=SC1090
 . "$TMP/model-selection.env"
 [ -n "${INITIAL_MODEL:-}" ] || fail "INITIAL_MODEL was not selected"
-[ -n "${TARGET_MODEL:-}" ] || fail "TARGET_MODEL was not selected"
+[ -n "${SWITCH1_MODEL:-}" ] || fail "SWITCH1_MODEL was not selected"
+[ -n "${SWITCH2_MODEL:-}" ] || fail "SWITCH2_MODEL was not selected"
+[ -n "${SWITCH3_MODEL:-}" ] || fail "SWITCH3_MODEL was not selected"
 
 (
   . "$SCRIPT_DIR/lib/codex-zh-common.sh"
@@ -187,13 +197,13 @@ PATH="$TMP/home/.local/bin:$PATH" \
 CODEX_ZH_FORCE_STDIN=1 \
 CODEX_ZH_API_BASE="http://127.0.0.1:$PORT/v1" \
 CODEX_ZH_API_KEY="$KRILL_API_KEY" \
-CODEX_ZH_DEFAULT_MODEL="$TARGET_MODEL" \
+CODEX_ZH_DEFAULT_MODEL="$SWITCH1_MODEL" \
   "$LAUNCHER" 配置模式 --version >"$TMP/logs/config-mode.stdout" 2>"$TMP/logs/config-mode.stderr" || {
     sed -n '1,180p' "$TMP/logs/config-mode.stderr" >&2 || true
     fail "codex 配置模式 failed"
   }
 
-assert_file_contains "$TMP/home/.codex/config.toml" "model = \"$TARGET_MODEL\""
+assert_file_contains "$TMP/home/.codex/config.toml" "model = \"$SWITCH1_MODEL\""
 assert_file_not_contains "$TMP/home/.codex/config.toml" "可用模型"
 
 HOME="$TMP/home" CODEX_HOME="$TMP/home/.codex" PATH="$TMP/home/.local/bin:$PATH" \
@@ -221,8 +231,14 @@ assert_file_contains "$TMP/work/AGENTS.md" "user actual workdir agents marker"
   --work-dir "$TMP/work" \
   --shape-dir "$TMP/logs/proxy-shapes" \
   --initial-model "$INITIAL_MODEL" \
-  --target-model "$TARGET_MODEL" \
+  --switch-model "$SWITCH1_MODEL" \
+  --switch-index "$SWITCH1_INDEX" \
+  --switch-model "$SWITCH2_MODEL" \
+  --switch-index "$SWITCH2_INDEX" \
+  --switch-model "$SWITCH3_MODEL" \
+  --switch-index "$SWITCH3_INDEX" \
   --target-effort high \
+  --effort-index 3 \
   --transcript "$TMP/private/tui-transcript.log" \
   >"$TMP/logs/tui-driver.stdout" 2>"$TMP/logs/tui-driver.stderr" || {
     sed -n '1,200p' "$TMP/logs/tui-driver.stderr" >&2 || true
@@ -237,8 +253,9 @@ assert_file_contains "$TMP/work/AGENTS.md" "user actual workdir agents marker"
 printf '%s\n' "OK: raw TUI transcript kept outside uploaded logs; proxy request shapes are redacted" \
   > "$TMP/logs/tui-transcript-policy.txt"
 
-assert_file_contains "$TMP/logs/tui-driver.stdout" "OK: TUI model/reasoning switch affected next request"
-assert_file_contains "$TMP/home/.codex/config.toml" "model = \"$TARGET_MODEL\""
+assert_file_contains "$TMP/logs/tui-driver.stdout" "OK: TUI repeated model/reasoning switches affected subsequent requests"
+assert_file_contains "$TMP/logs/tui-driver.stdout" "switches=3"
+assert_file_contains "$TMP/home/.codex/config.toml" "model = \"$FINAL_SWITCH_MODEL\""
 assert_file_contains "$TMP/home/.codex/config.toml" 'model_reasoning_effort = "high"'
 
 if grep -R -q -F -- "$KRILL_API_KEY" "$TMP/logs" >/dev/null 2>&1; then
