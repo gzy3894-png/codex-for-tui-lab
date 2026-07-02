@@ -1,0 +1,60 @@
+name: Codex for TUI Contracts
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: Source repository owner/name
+        required: false
+        default: gzy3894-png/codex-cli-zh-binary-skill
+      source_ref:
+        description: Source branch, tag, or SHA
+        required: false
+        default: android-arm64-musl-installer
+
+jobs:
+  contracts:
+    name: Fake API and update contracts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout lab
+        uses: actions/checkout@v4
+
+      - name: Checkout source under test
+        shell: bash
+        run: |
+          source_repo="${{ github.event.inputs.source_repo }}"
+          source_ref="${{ github.event.inputs.source_ref }}"
+          source_repo="${source_repo:-gzy3894-png/codex-cli-zh-binary-skill}"
+          source_ref="${source_ref:-android-arm64-musl-installer}"
+          sh scripts/checkout-source.sh "$source_repo" "$source_ref" "$GITHUB_WORKSPACE/_source"
+
+      - name: Source repo smoke tests
+        shell: bash
+        run: |
+          sh _source/tests/codex-for-tui-installer-smoke.sh
+          sh _source/tests/codex-for-tui-static-guards.sh
+          sh -n _source/tests/codex-for-tui-device-smoke.sh
+
+      - name: Config contract with fake API
+        shell: bash
+        run: sh tests/lab-config-contract.sh "$GITHUB_WORKSPACE/_source"
+
+      - name: Update atomicity contract
+        shell: bash
+        run: sh tests/lab-update-atomic-contract.sh "$GITHUB_WORKSPACE/_source"
+
+      - name: Upload contract logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-logs
+          path: |
+            /tmp/codex-tui-lab-*/**/*
+          if-no-files-found: ignore
+

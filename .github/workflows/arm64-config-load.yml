@@ -1,0 +1,49 @@
+name: Codex for TUI ARM64 Config Load
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: Source repository owner/name
+        required: false
+        default: gzy3894-png/codex-cli-zh-binary-skill
+      source_ref:
+        description: Source branch, tag, or SHA
+        required: false
+        default: android-arm64-musl-installer
+
+jobs:
+  arm64-config-load:
+    name: Real ARM64 Codex config load
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout lab
+        uses: actions/checkout@v4
+
+      - name: Checkout source under test
+        shell: bash
+        run: |
+          source_repo="${{ github.event.inputs.source_repo }}"
+          source_ref="${{ github.event.inputs.source_ref }}"
+          source_repo="${source_repo:-gzy3894-png/codex-cli-zh-binary-skill}"
+          source_ref="${source_ref:-android-arm64-musl-installer}"
+          sh scripts/checkout-source.sh "$source_repo" "$source_ref" "$GITHUB_WORKSPACE/_source"
+
+      - name: Verify real binary accepts generated config
+        shell: bash
+        run: sh tests/lab-arm64-codex-config-load.sh "$GITHUB_WORKSPACE/_source"
+
+      - name: Upload ARM64 logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm64-config-load-logs
+          path: |
+            /tmp/codex-tui-lab-*/**/*
+          if-no-files-found: ignore
+

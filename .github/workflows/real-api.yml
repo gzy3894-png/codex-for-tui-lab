@@ -1,0 +1,49 @@
+name: Codex for TUI Real API
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: Source repository owner/name
+        required: false
+        default: gzy3894-png/codex-cli-zh-binary-skill
+      source_ref:
+        description: Source branch, tag, or SHA
+        required: false
+        default: android-arm64-musl-installer
+
+jobs:
+  real-api:
+    name: Manual relay/API contract
+    runs-on: ubuntu-latest
+    env:
+      KRILL_API_BASE: ${{ secrets.KRILL_API_BASE }}
+      KRILL_API_KEY: ${{ secrets.KRILL_API_KEY }}
+      KRILL_TEST_MODEL: ${{ secrets.KRILL_TEST_MODEL }}
+
+    steps:
+      - name: Checkout lab
+        uses: actions/checkout@v4
+
+      - name: Checkout source under test
+        shell: bash
+        run: |
+          source_repo="${{ github.event.inputs.source_repo }}"
+          source_ref="${{ github.event.inputs.source_ref }}"
+          source_repo="${source_repo:-gzy3894-png/codex-cli-zh-binary-skill}"
+          source_ref="${source_ref:-android-arm64-musl-installer}"
+          sh scripts/checkout-source.sh "$source_repo" "$source_ref" "$GITHUB_WORKSPACE/_source"
+
+      - name: Real API config contract
+        shell: bash
+        run: sh tests/lab-real-api-contract.sh "$GITHUB_WORKSPACE/_source"
+
+      - name: Upload real API logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-api-contract-logs
+          path: |
+            /tmp/codex-tui-lab-*/**/*
+          if-no-files-found: ignore
+
