@@ -442,7 +442,9 @@ if grep -F 'codex tray long text line' "$TMP/logs/media-request-final.txt" >/dev
   fail "media bridge request dumped long text content"
 fi
 
-if tap_text "添加" media-add; then
+adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
+sleep 1
+if tap_exact_text "添加" media-add; then
   sleep 3
   adb exec-out screencap -p > "$TMP/logs/06-system-file-picker.png" || true
   adb shell dumpsys window > "$TMP/logs/window-after-file-picker.txt" 2>/dev/null || true
