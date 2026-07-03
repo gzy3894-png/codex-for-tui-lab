@@ -134,11 +134,14 @@ cat > "$WWW/basic.html" <<'HTML'
 <html>
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Codex Browser Lab</title>
     <style>
-      body { font-family: sans-serif; padding: 32px; }
-      input, button { font-size: 22px; padding: 10px; margin: 8px 0; width: 90%; }
-      #out { margin-top: 24px; font-size: 24px; color: #0b6b3a; }
+      body { font-family: sans-serif; margin: 0; padding: 18px; }
+      h1 { font-size: 26px; margin: 0 0 12px; }
+      input, button { box-sizing: border-box; font-size: 22px; padding: 10px; margin: 8px 0; width: 94%; }
+      #manual { height: 56px; }
+      #out { margin-top: 18px; font-size: 24px; color: #0b6b3a; }
     </style>
   </head>
   <body>
@@ -179,7 +182,12 @@ bridge_value="$(json_value "$TMP/logs/browser-result-bridge-click.json" "data.va
 
 focus_id="$(write_browser_request click selector "#manual")"
 wait_browser_state "$focus_id" done
+clear_id="$(write_browser_request execute_js script "const el=document.getElementById('manual'); el.value=''; el.dispatchEvent(new Event('input',{bubbles:true})); el.scrollIntoView({block:'start'}); el.blur(); return el.value;")"
+wait_browser_state "$clear_id" done
 dismiss_blocking_dialogs before-user-input
+adb exec-out screencap -p > "$TMP/logs/02-browser-before-user-tap.png" || true
+adb shell input tap 170 610 >/dev/null 2>&1 || true
+sleep 1
 adb shell input text manual42 >/dev/null 2>&1 || true
 sleep 2
 dismiss_blocking_dialogs after-user-input
