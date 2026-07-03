@@ -430,11 +430,11 @@ run_as "test -d local/media-preview/refs" || fail "file send did not create prev
 run_as "ls local/media-preview/refs | sed -n '1p'" > "$TMP/logs/media-ref-id.txt"
 ref_id="$(sed -n '1p' "$TMP/logs/media-ref-id.txt" | tr -d '\r')"
 [ -n "$ref_id" ] || fail "file send did not create a preview ref"
-run_as "grep -F 'path=' local/media-preview/refs/$ref_id" > "$TMP/logs/media-ref-$ref_id.txt" || fail "preview ref missing path"
-resolved_ref="$(run_as "PREFIX=/data/data/$PACKAGE local/bin/codex-preview path $ref_id" | tr -d '\r')"
+run_as "cat local/media-preview/refs/$ref_id" > "$TMP/logs/media-ref-$ref_id.txt" || fail "preview ref missing path"
+resolved_ref="$(sed -n 's/^path=//p' "$TMP/logs/media-ref-$ref_id.txt" | sed -n '1p' | tr -d '\r')"
 case "$resolved_ref" in
   /data/data/"$PACKAGE"/local/media-preview/files/*|/data/user/0/"$PACKAGE"/local/media-preview/files/*) ;;
-  *) fail "codex-preview path resolved unexpected path: $resolved_ref" ;;
+  *) fail "preview ref resolved unexpected path: $resolved_ref" ;;
 esac
 
 run_as "cat local/media-preview/request" > "$TMP/logs/media-request-final.txt" || true
