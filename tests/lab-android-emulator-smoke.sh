@@ -79,6 +79,18 @@ print(value)
 PY
 }
 
+dismiss_blocking_dialogs() {
+  label="${1:-dialog}"
+  adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+  if adb shell uiautomator dump /data/local/tmp/window.xml >/dev/null 2>&1; then
+    adb exec-out cat /data/local/tmp/window.xml > "$TMP/logs/window-$label.xml" 2>/dev/null || true
+    if grep -E "isn'?t responding|Wait" "$TMP/logs/window-$label.xml" >/dev/null 2>&1; then
+      adb shell input tap 360 1380 >/dev/null 2>&1 || true
+      sleep 1
+    fi
+  fi
+}
+
 [ -s "$APK" ] || fail "APK not found: $APK"
 
 adb wait-for-device
@@ -98,6 +110,7 @@ adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS >/dev/null 2
 adb shell appops set "$PACKAGE" MANAGE_EXTERNAL_STORAGE allow >/dev/null 2>&1 || true
 adb shell am start -n "$PACKAGE/$ACTIVITY" >"$TMP/logs/am-start.log"
 sleep 12
+dismiss_blocking_dialogs after-start
 
 pid="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' | sed -n '1p' || true)"
 [ -n "$pid" ] || {
@@ -144,6 +157,7 @@ url="http://10.0.2.2:8765/basic.html"
 open_id="$(write_browser_request navigate url "$url")"
 wait_browser_state "$open_id" done
 copy_browser_result open
+dismiss_blocking_dialogs after-open
 adb exec-out screencap -p > "$TMP/logs/01-browser-open.png" || true
 grep -F "Codex Browser Lab" "$TMP/logs/browser-result-open.json" >/dev/null || fail "browser did not report test page title"
 
@@ -165,8 +179,10 @@ bridge_value="$(json_value "$TMP/logs/browser-result-bridge-click.json" "data.va
 
 focus_id="$(write_browser_request click selector "#manual")"
 wait_browser_state "$focus_id" done
+dismiss_blocking_dialogs before-user-input
 adb shell input text manual42 >/dev/null 2>&1 || true
 sleep 2
+dismiss_blocking_dialogs after-user-input
 adb exec-out screencap -p > "$TMP/logs/02-browser-user-input.png" || true
 manual_id="$(write_browser_request execute_js script "return document.getElementById('manual').value;")"
 wait_browser_state "$manual_id" done
