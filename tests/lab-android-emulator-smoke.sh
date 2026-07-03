@@ -79,6 +79,31 @@ print(value)
 PY
 }
 
+first_edit_text_center() {
+  file="$1"
+  python3 - "$file" <<'PY'
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except Exception:
+    print("170 760")
+    raise SystemExit
+
+for node in root.iter("node"):
+    if node.attrib.get("class") == "android.widget.EditText":
+        match = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+        if match:
+            x1, y1, x2, y2 = map(int, match.groups())
+            print((x1 + x2) // 2, (y1 + y2) // 2)
+            raise SystemExit
+
+print("170 760")
+PY
+}
+
 dismiss_blocking_dialogs() {
   label="${1:-dialog}"
   adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
@@ -186,7 +211,9 @@ clear_id="$(write_browser_request execute_js script "const el=document.getElemen
 wait_browser_state "$clear_id" done
 dismiss_blocking_dialogs before-user-input
 adb exec-out screencap -p > "$TMP/logs/02-browser-before-user-tap.png" || true
-adb shell input tap 170 610 >/dev/null 2>&1 || true
+tap_xy="$(first_edit_text_center "$TMP/logs/window-before-user-input.xml")"
+set -- $tap_xy
+adb shell input tap "$1" "$2" >/dev/null 2>&1 || true
 sleep 1
 adb shell input text manual42 >/dev/null 2>&1 || true
 sleep 2
