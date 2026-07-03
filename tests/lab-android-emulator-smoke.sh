@@ -94,6 +94,7 @@ done
 
 adb install -r "$APK" >"$TMP/logs/install.log"
 adb shell pm clear "$PACKAGE" >/dev/null || true
+adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || true
 adb shell appops set "$PACKAGE" MANAGE_EXTERNAL_STORAGE allow >/dev/null 2>&1 || true
 adb shell am start -n "$PACKAGE/$ACTIVITY" >"$TMP/logs/am-start.log"
 sleep 12
