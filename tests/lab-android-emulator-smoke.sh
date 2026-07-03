@@ -38,6 +38,23 @@ write_browser_request() {
   printf '%s\n' "$request_id"
 }
 
+write_media_request() {
+  request_id="$(date +%s).$$.$1"
+  kind="$1"
+  path="$2"
+  name="$3"
+  {
+    printf 'action=show\n'
+    printf 'stamp=%s\n' "$request_id"
+    printf 'kind=%s\n' "$kind"
+    printf 'path=%s\n' "$path"
+    printf 'name=%s\n' "$name"
+  } > "$TMP/logs/media-request-$request_id.txt"
+  adb push "$TMP/logs/media-request-$request_id.txt" "/data/local/tmp/media-request-$request_id" >/dev/null
+  run_as "mkdir -p local/media-preview && cp /data/local/tmp/media-request-$request_id local/media-preview/request"
+  printf '%s\n' "$request_id"
+}
+
 wait_browser_state() {
   request_id="$1"
   expected="$2"
@@ -57,6 +74,22 @@ wait_browser_state() {
   done
   run_as "cat local/browser/status" > "$TMP/logs/browser-status-timeout-$request_id.txt" || true
   fail "browser request $request_id did not reach state=$expected"
+}
+
+wait_media_status() {
+  stamp="$1"
+  expected_kind="$2"
+  i=0
+  while [ "$i" -lt 30 ]; do
+    if run_as "test -s local/media-preview/status && grep -F 'shown=1' local/media-preview/status && grep -F 'kind=$expected_kind' local/media-preview/status" >/dev/null 2>&1; then
+      run_as "cat local/media-preview/status" > "$TMP/logs/media-status-$stamp.txt" || true
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  run_as "cat local/media-preview/status" > "$TMP/logs/media-status-timeout-$stamp.txt" || true
+  fail "media request $stamp did not show kind=$expected_kind"
 }
 
 copy_browser_result() {
@@ -102,6 +135,43 @@ for node in root.iter("node"):
 
 print("170 760")
 PY
+}
+
+text_center() {
+  file="$1"
+  needle="$2"
+  python3 - "$file" "$needle" <<'PY'
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+needle = sys.argv[2]
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except Exception:
+    raise SystemExit(1)
+
+for node in root.iter("node"):
+    text = node.attrib.get("text", "") or node.attrib.get("content-desc", "")
+    if needle in text:
+        match = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+        if match:
+            x1, y1, x2, y2 = map(int, match.groups())
+            print((x1 + x2) // 2, (y1 + y2) // 2)
+            raise SystemExit
+
+raise SystemExit(1)
+PY
+}
+
+tap_text() {
+  needle="$1"
+  label="$2"
+  adb shell uiautomator dump /data/local/tmp/window.xml >/dev/null 2>&1 || return 1
+  adb exec-out cat /data/local/tmp/window.xml > "$TMP/logs/window-$label.xml" 2>/dev/null || true
+  xy="$(text_center "$TMP/logs/window-$label.xml" "$needle")" || return 1
+  set -- $xy
+  adb shell input tap "$1" "$2" >/dev/null 2>&1
 }
 
 dismiss_blocking_dialogs() {
@@ -173,7 +243,21 @@ cat > "$WWW/basic.html" <<'HTML'
     <h1 id="title">Codex Browser Lab</h1>
     <input id="manual" value="" placeholder="type here">
     <button id="go" onclick="document.getElementById('out').textContent='clicked:' + document.getElementById('manual').value">Run</button>
+    <button id="intent-fallback" onclick="location.href='intent://scan/#Intent;scheme=zxing;S.browser_fallback_url=http%3A%2F%2F10.0.2.2%3A8765%2Ffallback.html;end'">Fallback</button>
     <main id="out">ready</main>
+  </body>
+</html>
+HTML
+cat > "$WWW/fallback.html" <<'HTML'
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codex Browser Fallback</title>
+  </head>
+  <body>
+    <h1 id="fallback-title">Codex Browser Fallback</h1>
   </body>
 </html>
 HTML
@@ -204,6 +288,16 @@ wait_browser_state "$read_id" done
 copy_browser_result bridge-click
 bridge_value="$(json_value "$TMP/logs/browser-result-bridge-click.json" "data.value")"
 [ "$bridge_value" = "clicked:bridge" ] || fail "bridge click/type did not update DOM: $bridge_value"
+
+fallback_click_id="$(write_browser_request click selector "#intent-fallback")"
+wait_browser_state "$fallback_click_id" done
+fallback_text_id="$(write_browser_request get_text selector "#fallback-title")"
+wait_browser_state "$fallback_text_id" done
+copy_browser_result scheme-fallback
+fallback_text="$(json_value "$TMP/logs/browser-result-scheme-fallback.json" "data.text")"
+[ "$fallback_text" = "Codex Browser Fallback" ] || fail "external scheme fallback did not load: $fallback_text"
+return_id="$(write_browser_request navigate url "$url")"
+wait_browser_state "$return_id" done
 
 focus_id="$(write_browser_request click selector "#manual")"
 wait_browser_state "$focus_id" done
@@ -237,6 +331,59 @@ adb exec-out screencap -p > "$TMP/logs/03-browser-waiting-for-user.png" || true
 done_id="$(write_browser_request user_done)"
 wait_browser_state "$done_id" done
 copy_browser_result user-done
+
+auth_id="$(write_browser_request auth url "$url")"
+wait_browser_state "$auth_id" waiting_for_user
+copy_browser_result auth
+adb exec-out screencap -p > "$TMP/logs/04-browser-auth-external.png" || true
+adb shell am start -n "$PACKAGE/$ACTIVITY" >/dev/null 2>&1 || true
+sleep 2
+auth_done_id="$(write_browser_request user_done)"
+wait_browser_state "$auth_done_id" done
+
+close_id="$(write_browser_request close)"
+wait_browser_state "$close_id" closed
+
+MEDIA="$TMP/media"
+mkdir -p "$MEDIA"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=' | base64 -d > "$MEDIA/tiny.png"
+printf 'fake mp4 payload for tray smoke\n' > "$MEDIA/clip.mp4"
+i=0
+while [ "$i" -lt 300 ]; do
+  printf 'codex tray long text line %s\n' "$i"
+  i=$((i + 1))
+done > "$MEDIA/notes.md"
+
+adb push "$MEDIA/tiny.png" /data/local/tmp/codex-tray-tiny.png >/dev/null
+adb push "$MEDIA/clip.mp4" /data/local/tmp/codex-tray-clip.mp4 >/dev/null
+adb push "$MEDIA/notes.md" /data/local/tmp/codex-tray-notes.md >/dev/null
+run_as "mkdir -p local/media-preview/files && cp /data/local/tmp/codex-tray-tiny.png local/media-preview/files/tiny.png && cp /data/local/tmp/codex-tray-clip.mp4 local/media-preview/files/clip.mp4 && cp /data/local/tmp/codex-tray-notes.md local/media-preview/files/notes.md"
+
+image_id="$(write_media_request image "/data/data/$PACKAGE/local/media-preview/files/tiny.png" tiny.png)"
+wait_media_status "$image_id" image
+video_id="$(write_media_request video "/data/data/$PACKAGE/local/media-preview/files/clip.mp4" clip.mp4)"
+wait_media_status "$video_id" video
+text_id="$(write_media_request text "/data/data/$PACKAGE/local/media-preview/files/notes.md" notes.md)"
+wait_media_status "$text_id" text
+adb exec-out screencap -p > "$TMP/logs/05-media-tray-thumbnails.png" || true
+
+run_as "cat local/media-preview/request" > "$TMP/logs/media-request-final.txt" || true
+if grep -F 'codex tray long text line' "$TMP/logs/media-request-final.txt" >/dev/null 2>&1; then
+  fail "media bridge request dumped long text content"
+fi
+
+if tap_text "添加" media-add; then
+  sleep 3
+  adb exec-out screencap -p > "$TMP/logs/06-system-file-picker.png" || true
+  adb shell dumpsys window > "$TMP/logs/window-after-file-picker.txt" 2>/dev/null || true
+  if ! grep -E "documentsui|DocumentsUI|resolver" "$TMP/logs/window-after-file-picker.txt" >/dev/null 2>&1; then
+    fail "system file picker did not open from preview tray"
+  fi
+  adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
+  sleep 1
+else
+  fail "could not tap preview tray add button"
+fi
 
 adb logcat -d > "$TMP/logs/logcat.txt" || true
 printf 'OK: Android emulator browser smoke passed\n'
