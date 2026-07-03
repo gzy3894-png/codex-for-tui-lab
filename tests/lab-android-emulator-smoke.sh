@@ -367,6 +367,39 @@ text_id="$(write_media_request text "/data/data/$PACKAGE/local/media-preview/fil
 wait_media_status "$text_id" text
 adb exec-out screencap -p > "$TMP/logs/05-media-tray-thumbnails.png" || true
 
+adb shell uiautomator dump /data/local/tmp/window.xml >/dev/null 2>&1 || fail "could not dump file tray UI"
+adb exec-out cat /data/local/tmp/window.xml > "$TMP/logs/window-media-tray.xml" 2>/dev/null || true
+grep -F 'text="文件"' "$TMP/logs/window-media-tray.xml" >/dev/null 2>&1 || fail "file tray title/entry was not visible"
+grep -F 'text="发送"' "$TMP/logs/window-media-tray.xml" >/dev/null 2>&1 || fail "file tray send button was not visible"
+if grep -F '预览托盘' "$TMP/logs/window-media-tray.xml" >/dev/null 2>&1; then
+  fail "old preview tray wording is still visible"
+fi
+
+tap_text "发送" media-send || fail "could not tap file tray send button"
+sleep 1
+adb shell uiautomator dump /data/local/tmp/window.xml >/dev/null 2>&1 || fail "could not dump send file dialog"
+adb exec-out cat /data/local/tmp/window.xml > "$TMP/logs/window-media-send-dialog.xml" 2>/dev/null || true
+grep -F '发送文件' "$TMP/logs/window-media-send-dialog.xml" >/dev/null 2>&1 || fail "send file dialog did not open"
+grep -F '附加说明' "$TMP/logs/window-media-send-dialog.xml" >/dev/null 2>&1 || fail "send file dialog missing optional note field"
+send_xy="$(first_edit_text_center "$TMP/logs/window-media-send-dialog.xml")"
+set -- $send_xy
+adb shell input tap "$1" "$2" >/dev/null 2>&1 || true
+sleep 1
+adb shell input text ui-note >/dev/null 2>&1 || true
+sleep 1
+tap_text "发送" media-send-confirm || fail "could not confirm file send"
+sleep 2
+run_as "test -d local/media-preview/refs" || fail "file send did not create preview refs directory"
+run_as "ls local/media-preview/refs | sed -n '1p'" > "$TMP/logs/media-ref-id.txt"
+ref_id="$(sed -n '1p' "$TMP/logs/media-ref-id.txt" | tr -d '\r')"
+[ -n "$ref_id" ] || fail "file send did not create a preview ref"
+run_as "grep -F 'path=' local/media-preview/refs/$ref_id" > "$TMP/logs/media-ref-$ref_id.txt" || fail "preview ref missing path"
+resolved_ref="$(run_as "PREFIX=/data/data/$PACKAGE local/bin/codex-preview path $ref_id" | tr -d '\r')"
+case "$resolved_ref" in
+  /data/data/"$PACKAGE"/local/media-preview/files/*|/data/user/0/"$PACKAGE"/local/media-preview/files/*) ;;
+  *) fail "codex-preview path resolved unexpected path: $resolved_ref" ;;
+esac
+
 run_as "cat local/media-preview/request" > "$TMP/logs/media-request-final.txt" || true
 if grep -F 'codex tray long text line' "$TMP/logs/media-request-final.txt" >/dev/null 2>&1; then
   fail "media bridge request dumped long text content"
