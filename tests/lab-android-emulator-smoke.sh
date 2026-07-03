@@ -16,7 +16,8 @@ fail() {
 }
 
 run_as() {
-  adb shell run-as "$PACKAGE" sh -c "$1"
+  quoted="$(printf '%s' "$1" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/")"
+  adb shell run-as "$PACKAGE" sh -c "$quoted"
 }
 
 write_browser_request() {
@@ -144,6 +145,12 @@ wait_browser_state "$open_id" done
 copy_browser_result open
 adb exec-out screencap -p > "$TMP/logs/01-browser-open.png" || true
 grep -F "Codex Browser Lab" "$TMP/logs/browser-result-open.json" >/dev/null || fail "browser did not report test page title"
+
+text_id="$(write_browser_request get_text selector "#title")"
+wait_browser_state "$text_id" done
+copy_browser_result title-text
+title_text="$(json_value "$TMP/logs/browser-result-title-text.json" "data.text")"
+[ "$title_text" = "Codex Browser Lab" ] || fail "browser text read failed: $title_text"
 
 type_id="$(write_browser_request type selector "#manual" text "bridge")"
 wait_browser_state "$type_id" done
