@@ -574,18 +574,22 @@ adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
 sleep 1
 ensure_app_foreground before-media-add
 sleep 1
-if tap_exact_text "添加" media-add || tap_exact_text "+" media-add-plus; then
-  sleep 3
-  adb exec-out screencap -p > "$TMP/logs/06-system-file-picker.png" || true
-  adb shell dumpsys window > "$TMP/logs/window-after-file-picker.txt" 2>/dev/null || true
-  if ! grep -E "documentsui|DocumentsUI|resolver" "$TMP/logs/window-after-file-picker.txt" >/dev/null 2>&1; then
-    fail "system file picker did not open from preview tray"
+if ! tap_exact_text "添加" media-add; then
+  if tap_exact_text "+" media-expand-topbar || tap_exact_text "文件" media-expand-topbar-file; then
+    sleep 1
+    tap_exact_text "添加" media-add-expanded || tap_exact_text "添加文件" media-add-empty || fail "could not tap expanded file tray add button"
+  else
+    fail "could not expand preview tray add controls"
   fi
-  adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
-  sleep 1
-else
-  fail "could not tap preview tray add button"
 fi
+sleep 3
+adb exec-out screencap -p > "$TMP/logs/06-system-file-picker.png" || true
+adb shell dumpsys window > "$TMP/logs/window-after-file-picker.txt" 2>/dev/null || true
+if ! grep -E "documentsui|DocumentsUI|resolver" "$TMP/logs/window-after-file-picker.txt" >/dev/null 2>&1; then
+  fail "system file picker did not open from preview tray"
+fi
+adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
+sleep 1
 
 adb logcat -d > "$TMP/logs/logcat.txt" || true
 printf 'OK: Android emulator browser smoke passed\n'
