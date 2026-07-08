@@ -574,7 +574,7 @@ adb shell input keyevent KEYCODE_BACK >/dev/null 2>&1 || true
 sleep 1
 ensure_app_foreground before-media-add
 sleep 1
-if tap_exact_text "添加" media-add; then
+if tap_exact_text "添加" media-add || tap_exact_text "+" media-add-plus; then
   sleep 3
   adb exec-out screencap -p > "$TMP/logs/06-system-file-picker.png" || true
   adb shell dumpsys window > "$TMP/logs/window-after-file-picker.txt" 2>/dev/null || true
