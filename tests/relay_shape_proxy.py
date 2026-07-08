@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import copy
 import json
 import os
 import sys
@@ -151,10 +152,62 @@ def summarize_response_json(body):
     return {"body_json": True, "top_keys": sorted(payload.keys())}
 
 
+def text_model_items(payload):
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return []
+    items = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id")
+        if not isinstance(model_id, str) or not model_id:
+            continue
+        if "image" in model_id.lower() or model_id.startswith("codex-auto-"):
+            continue
+        items.append(item)
+    return items
+
+
+def ensure_text_model_aliases(payload, minimum_count):
+    if minimum_count <= 0 or not isinstance(payload, dict):
+        return {}, payload
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return {}, payload
+    text_items = text_model_items(payload)
+    if len(text_items) >= minimum_count or not text_items:
+        return {}, payload
+    existing_ids = {
+        item.get("id")
+        for item in data
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    target = text_items[0]
+    target_id = target["id"]
+    aliases = {}
+    out = copy.deepcopy(payload)
+    out_data = out.get("data")
+    idx = 1
+    while len(text_items) + len(aliases) < minimum_count:
+        alias = f"codex-tui-switch-{idx}"
+        idx += 1
+        if alias in existing_ids:
+            continue
+        cloned = copy.deepcopy(target)
+        cloned["id"] = alias
+        out_data.append(cloned)
+        existing_ids.add(alias)
+        aliases[alias] = target_id
+    return aliases, out
+
+
 class Handler(BaseHTTPRequestHandler):
     backend_base = ""
     log_dir = ""
     counter = 0
+    ensure_text_model_aliases = 0
+    model_alias_map = {}
 
     def log_message(self, fmt, *args):
         print("%s - %s" % (self.address_string(), fmt % args), flush=True)
@@ -193,6 +246,20 @@ class Handler(BaseHTTPRequestHandler):
         }
         if method == "POST":
             shape["request"] = summarize_request(body)
+            if Handler.model_alias_map:
+                try:
+                    payload = json.loads(body.decode("utf-8")) if body else None
+                    if isinstance(payload, dict):
+                        model = payload.get("model")
+                        if model in Handler.model_alias_map:
+                            payload["model"] = Handler.model_alias_map[model]
+                            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+                            shape["model_alias"] = {
+                                "requested": model,
+                                "backend": Handler.model_alias_map[model],
+                            }
+                except Exception as exc:
+                    shape["model_alias_error"] = repr(exc)
 
         req_headers = {}
         for key, value in self.headers.items():
@@ -207,6 +274,49 @@ class Handler(BaseHTTPRequestHandler):
             headers=req_headers,
             method=method,
         )
+        if (
+            method == "GET"
+            and parsed.path == "/v1/models"
+            and Handler.ensure_text_model_aliases > 0
+        ):
+            try:
+                with urllib.request.urlopen(req, timeout=180) as upstream:
+                    upstream_body = upstream.read()
+                    payload = json.loads(upstream_body.decode("utf-8"))
+                    aliases, payload = ensure_text_model_aliases(
+                        payload,
+                        Handler.ensure_text_model_aliases,
+                    )
+                    Handler.model_alias_map.update(aliases)
+                    out = json.dumps(payload).encode("utf-8")
+                    shape["upstream_status"] = upstream.status
+                    shape["model_aliases"] = aliases
+                    self.send_response(upstream.status)
+                    self.send_header("content-type", "application/json")
+                    self.send_header("content-length", str(len(out)))
+                    self.end_headers()
+                    self.wfile.write(out)
+                    shape["response_complete"] = True
+                    shape["response_bytes"] = len(out)
+                    self.write_log(shape)
+            except urllib.error.HTTPError as exc:
+                error_body = exc.read()
+                shape["upstream_status"] = exc.code
+                shape["upstream_error"] = summarize_response_json(error_body)
+                self.write_log(shape)
+                self.send_response(exc.code)
+                for key, value in exc.headers.items():
+                    if key.lower() in {"transfer-encoding", "connection"}:
+                        continue
+                    self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(error_body)
+            except Exception as exc:
+                shape["proxy_error"] = repr(exc)
+                self.write_log(shape)
+                self.write_json(502, {"error": "proxy_error", "message": str(exc)})
+            return
+
         try:
             with urllib.request.urlopen(req, timeout=180) as upstream:
                 shape["upstream_status"] = upstream.status
@@ -260,10 +370,12 @@ def main():
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--backend-base", required=True)
     parser.add_argument("--log-dir", required=True)
+    parser.add_argument("--ensure-text-model-aliases", type=int, default=0)
     args = parser.parse_args()
 
     Handler.backend_base = normalize_backend_base(args.backend_base)
     Handler.log_dir = args.log_dir
+    Handler.ensure_text_model_aliases = args.ensure_text_model_aliases
     os.makedirs(Handler.log_dir, exist_ok=True)
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)

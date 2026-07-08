@@ -20,6 +20,51 @@ run_as() {
   adb shell run-as "$PACKAGE" sh -c "$quoted"
 }
 
+seed_app_settings() {
+  cat > "$TMP/logs/Settings.xml" <<'XML'
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+  <boolean name="ignore_storage_permission" value="true" />
+</map>
+XML
+  adb push "$TMP/logs/Settings.xml" /data/local/tmp/codex-tui-settings.xml >/dev/null
+  run_as "mkdir -p shared_prefs && cp /data/local/tmp/codex-tui-settings.xml shared_prefs/Settings.xml"
+}
+
+top_window_target() {
+  adb shell dumpsys window 2>/dev/null \
+    | sed -n \
+      -e 's/.*mCurrentFocus=Window{[^ ]* [^ ]* \([^}]*\)}.*/\1/p' \
+      -e 's/.*mFocusedApp=ActivityRecord{[^ ]* [^ ]* \([^ ]*\).*/\1/p' \
+      -e 's/.*mResumedActivity: ActivityRecord{[^ ]* [^ ]* \([^ ]*\).*/\1/p' \
+    | tr -d '\r' \
+    | sed -n '1p'
+}
+
+start_main_activity() {
+  label="$1"
+  adb shell am start -n "$PACKAGE/$ACTIVITY" >"$TMP/logs/am-start-$label.log" 2>&1 || true
+}
+
+ensure_app_foreground() {
+  label="$1"
+  start_main_activity "$label"
+  i=0
+  while [ "$i" -lt 20 ]; do
+    target="$(top_window_target)"
+    printf '%s\n' "$target" > "$TMP/logs/top-window-$label.txt"
+    case "$target" in
+      "$PACKAGE"/*|*/"$PACKAGE"/*|*"$PACKAGE"*) return 0 ;;
+    esac
+    i=$((i + 1))
+    sleep 1
+    start_main_activity "$label-retry-$i"
+  done
+  adb shell dumpsys window > "$TMP/logs/window-$label.txt" 2>/dev/null || true
+  adb logcat -d > "$TMP/logs/logcat-$label.txt" 2>/dev/null || true
+  fail "app did not stay foreground for $label; top=$(top_window_target)"
+}
+
 write_browser_request() {
   request_id="$(date +%s).$$.$1"
   action="$1"
@@ -73,6 +118,10 @@ wait_browser_state() {
     sleep 1
   done
   run_as "cat local/browser/status" > "$TMP/logs/browser-status-timeout-$request_id.txt" || true
+  adb shell dumpsys window > "$TMP/logs/window-browser-timeout-$request_id.txt" 2>/dev/null || true
+  adb logcat -d > "$TMP/logs/logcat-browser-timeout-$request_id.txt" 2>/dev/null || true
+  adb shell uiautomator dump /data/local/tmp/window.xml >/dev/null 2>&1 || true
+  adb exec-out cat /data/local/tmp/window.xml > "$TMP/logs/window-browser-timeout-$request_id.xml" 2>/dev/null || true
   fail "browser request $request_id did not reach state=$expected"
 }
 
@@ -238,11 +287,13 @@ done
 
 adb install -r "$APK" >"$TMP/logs/install.log"
 adb shell pm clear "$PACKAGE" >/dev/null || true
+seed_app_settings
 adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || true
 adb shell appops set "$PACKAGE" MANAGE_EXTERNAL_STORAGE allow >/dev/null 2>&1 || true
-adb shell am start -n "$PACKAGE/$ACTIVITY" >"$TMP/logs/am-start.log"
+start_main_activity initial
 sleep 12
 dismiss_blocking_dialogs after-start
+ensure_app_foreground after-start
 
 pid="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' | sed -n '1p' || true)"
 [ -n "$pid" ] || {

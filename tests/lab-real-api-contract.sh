@@ -18,6 +18,47 @@ rm -rf "$TMP"
 mkdir -p "$TMP/home" "$TMP/logs"
 trap ':' EXIT HUP INT TERM
 
+models_url="${KRILL_API_BASE%/}"
+case "$models_url" in
+  */v1) ;;
+  *) models_url="$models_url/v1" ;;
+esac
+models_url="$models_url/models"
+
+curl -fsS --http1.1 \
+  -H "Authorization: Bearer $KRILL_API_KEY" \
+  -H "Accept: application/json" \
+  "$models_url" \
+  -o "$TMP/models.json"
+
+"$PYTHON" - "$TMP/models.json" "${KRILL_TEST_MODEL:-}" >"$TMP/model-selection.env" <<'PY'
+import json
+import shlex
+import sys
+
+models_path, requested = sys.argv[1:3]
+with open(models_path, "r", encoding="utf-8") as fh:
+    payload = json.load(fh)
+ids = [
+    item.get("id")
+    for item in payload.get("data", [])
+    if isinstance(item, dict) and isinstance(item.get("id"), str)
+]
+text_ids = [
+    item
+    for item in ids
+    if item and "image" not in item.lower() and not item.startswith("codex-auto-")
+]
+if not text_ids:
+    raise SystemExit("model list has no non-image text model")
+selected = requested if requested in text_ids else text_ids[0]
+print("SELECTED_MODEL=" + shlex.quote(selected))
+PY
+
+# shellcheck disable=SC1090
+. "$TMP/model-selection.env"
+[ -n "${SELECTED_MODEL:-}" ] || fail "SELECTED_MODEL was not selected"
+
 (
   . "$SCRIPT_DIR/lib/codex-zh-common.sh"
   . "$SCRIPT_DIR/lib/codex-zh-config.sh"
@@ -27,7 +68,7 @@ trap ':' EXIT HUP INT TERM
   export CODEX_ZH_SETUP_MODE=third_party
   export CODEX_ZH_API_BASE="$KRILL_API_BASE"
   export CODEX_ZH_API_KEY="$KRILL_API_KEY"
-  export CODEX_ZH_DEFAULT_MODEL="${KRILL_TEST_MODEL:-}"
+  export CODEX_ZH_DEFAULT_MODEL="$SELECTED_MODEL"
   codex_config_prompt_third_party >"$TMP/logs/config.stdout" 2>"$TMP/logs/config.stderr"
 ) || {
   sed -n '1,120p' "$TMP/logs/config.stderr" >&2 || true

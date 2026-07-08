@@ -45,6 +45,7 @@ trap 'kill "$proxy_pid" 2>/dev/null || true' EXIT HUP INT TERM
 "$PYTHON" "$LAB_DIR/tests/relay_shape_proxy.py" \
   --port "$PORT" \
   --backend-base "$KRILL_API_BASE" \
+  --ensure-text-model-aliases 3 \
   --log-dir "$TMP/logs/proxy-shapes" \
   >"$TMP/logs/proxy.stdout" 2>"$TMP/logs/proxy.stderr" &
 proxy_pid="$!"
