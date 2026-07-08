@@ -264,6 +264,44 @@ raise SystemExit(1)
 PY
 }
 
+node_center_after() {
+  file="$1"
+  marker="$2"
+  mode="$3"
+  value="${4:-}"
+  python3 - "$file" "$marker" "$mode" "$value" <<'PY'
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+marker = sys.argv[2]
+mode = sys.argv[3]
+value = sys.argv[4]
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except Exception:
+    raise SystemExit(1)
+
+seen_marker = False
+for node in root.iter("node"):
+    text = node.attrib.get("text", "") or node.attrib.get("content-desc", "")
+    if not seen_marker:
+        if marker in text:
+            seen_marker = True
+        continue
+    if (mode == "exact_text" and text == value) or (
+        mode == "edit_text" and node.attrib.get("class") == "android.widget.EditText"
+    ):
+        match = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+        if match:
+            x1, y1, x2, y2 = map(int, match.groups())
+            print((x1 + x2) // 2, (y1 + y2) // 2)
+            raise SystemExit
+
+raise SystemExit(1)
+PY
+}
+
 tap_text() {
   needle="$1"
   label="$2"
@@ -280,6 +318,17 @@ tap_exact_text() {
   adb shell uiautomator dump /data/local/tmp/window.xml >/dev/null 2>&1 || return 1
   adb exec-out cat /data/local/tmp/window.xml > "$TMP/logs/window-$label.xml" 2>/dev/null || true
   xy="$(exact_text_center "$TMP/logs/window-$label.xml" "$needle")" || return 1
+  set -- $xy
+  adb shell input tap "$1" "$2" >/dev/null 2>&1
+}
+
+tap_exact_text_after() {
+  marker="$1"
+  needle="$2"
+  label="$3"
+  adb shell uiautomator dump /data/local/tmp/window.xml >/dev/null 2>&1 || return 1
+  adb exec-out cat /data/local/tmp/window.xml > "$TMP/logs/window-$label.xml" 2>/dev/null || true
+  xy="$(node_center_after "$TMP/logs/window-$label.xml" "$marker" exact_text "$needle")" || return 1
   set -- $xy
   adb shell input tap "$1" "$2" >/dev/null 2>&1
 }
@@ -491,19 +540,19 @@ if grep -F '预览托盘' "$TMP/logs/window-media-tray.xml" >/dev/null 2>&1; the
   fail "old preview tray wording is still visible"
 fi
 
-tap_exact_text "发送" media-send || fail "could not tap file tray send button"
+tap_exact_text_after "tiny.png" "发送" media-send || fail "could not tap file tray send button"
 sleep 1
 adb shell uiautomator dump /data/local/tmp/window.xml >/dev/null 2>&1 || fail "could not dump send file dialog"
 adb exec-out cat /data/local/tmp/window.xml > "$TMP/logs/window-media-send-dialog.xml" 2>/dev/null || true
 grep -F '发送文件' "$TMP/logs/window-media-send-dialog.xml" >/dev/null 2>&1 || fail "send file dialog did not open"
 grep -F '附加说明' "$TMP/logs/window-media-send-dialog.xml" >/dev/null 2>&1 || fail "send file dialog missing optional note field"
-send_xy="$(first_edit_text_center "$TMP/logs/window-media-send-dialog.xml")"
+send_xy="$(node_center_after "$TMP/logs/window-media-send-dialog.xml" "发送文件" edit_text)"
 set -- $send_xy
 adb shell input tap "$1" "$2" >/dev/null 2>&1 || true
 sleep 1
 adb shell input text ui-note >/dev/null 2>&1 || true
 sleep 1
-tap_exact_text "发送" media-send-confirm || fail "could not confirm file send"
+tap_exact_text_after "附加说明" "发送" media-send-confirm || fail "could not confirm file send"
 sleep 2
 run_as "test -d local/media-preview/refs" || fail "file send did not create preview refs directory"
 run_as "ls local/media-preview/refs | sed -n '1p'" > "$TMP/logs/media-ref-id.txt"
