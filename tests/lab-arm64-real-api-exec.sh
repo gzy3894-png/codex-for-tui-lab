@@ -211,13 +211,14 @@ assert_file_contains "$TMP/home/.codex/config.toml" 'status_line = ["model", "cu
 assert_file_contains "$TMP/home/.codex/config.toml" 'fast_mode = true'
 assert_file_contains "$TMP/home/.codex/config.toml" 'goals = true'
 
-HOME="$TMP/home" \
-CODEX_HOME="$TMP/home/.codex" \
-PATH="$TMP/home/.local/bin:$PATH" \
-CODEX_ZH_FORCE_STDIN=1 \
-CODEX_ZH_API_BASE="http://127.0.0.1:$PORT/v1" \
-CODEX_ZH_API_KEY="$KRILL_API_KEY" \
-CODEX_ZH_DEFAULT_MODEL="$SWITCH1_MODEL" \
+printf '%s\n' 3 "" "" 2 switched 9 |
+  HOME="$TMP/home" \
+  CODEX_HOME="$TMP/home/.codex" \
+  PATH="$TMP/home/.local/bin:$PATH" \
+  CODEX_ZH_FORCE_STDIN=1 \
+  CODEX_ZH_API_BASE="http://127.0.0.1:$PORT/v1" \
+  CODEX_ZH_API_KEY="$KRILL_API_KEY" \
+  CODEX_ZH_DEFAULT_MODEL="$SWITCH1_MODEL" \
   "$LAUNCHER" 配置模式 --version >"$TMP/logs/config-mode.stdout" 2>"$TMP/logs/config-mode.stderr" || {
     sed -n '1,180p' "$TMP/logs/config-mode.stderr" >&2 || true
     fail "codex 配置模式 failed"

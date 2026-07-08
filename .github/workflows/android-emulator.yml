@@ -33,6 +33,40 @@ jobs:
           source_ref="${source_ref:-android-arm64-musl-installer}"
           sh scripts/checkout-source.sh "$source_repo" "$source_ref" "$GITHUB_WORKSPACE/_source"
 
+      - name: Checkout RTK
+        uses: actions/checkout@v4
+        with:
+          repository: rtk-ai/rtk
+          ref: v0.43.0
+          path: rtk-src
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+
+      - name: Install cross and qemu
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user
+          cargo install cross --locked
+
+      - name: Build RTK
+        working-directory: rtk-src
+        shell: bash
+        run: cross build --release --target aarch64-unknown-linux-musl
+
+      - name: Install RTK APK asset
+        shell: bash
+        run: |
+          cp rtk-src/target/aarch64-unknown-linux-musl/release/rtk /tmp/rtk
+          chmod 755 /tmp/rtk
+          qemu-aarch64 /tmp/rtk --version
+          cp /tmp/rtk "$GITHUB_WORKSPACE/_source/android-app/core/main/src/main/assets/rtk"
+          chmod 755 "$GITHUB_WORKSPACE/_source/android-app/core/main/src/main/assets/rtk"
+          test -s "$GITHUB_WORKSPACE/_source/android-app/core/main/src/main/assets/rtk"
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
