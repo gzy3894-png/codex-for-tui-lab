@@ -455,7 +455,7 @@ adb exec-out screencap -p > "$TMP/logs/04-browser-auth-external.png" || true
 adb shell am start -n "$PACKAGE/$ACTIVITY" >/dev/null 2>&1 || true
 sleep 2
 write_browser_request auth_done auth_request_id "$auth_id" >/dev/null
-wait_browser_state "$auth_id" done
+wait_browser_state "$auth_id" user_done
 
 close_id="$(write_browser_request close)"
 wait_browser_state "$close_id" closed
