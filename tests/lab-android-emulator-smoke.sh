@@ -125,6 +125,30 @@ wait_browser_state() {
   fail "browser request $request_id did not reach state=$expected"
 }
 
+wait_browser_url() {
+  request_id="$1"
+  expected_url="$2"
+  i=0
+  while [ "$i" -lt 45 ]; do
+    run_as "cat local/browser/status" > "$TMP/logs/browser-status-url-$request_id.txt" 2>/dev/null || true
+    if grep -F "request_id=$request_id" "$TMP/logs/browser-status-url-$request_id.txt" >/dev/null 2>&1; then
+      state="$(sed -n 's/^state=//p' "$TMP/logs/browser-status-url-$request_id.txt" | sed -n '1p')"
+      current_url="$(sed -n 's/^url=//p' "$TMP/logs/browser-status-url-$request_id.txt" | sed -n '1p')"
+      [ "$state" = "done" ] && [ "$current_url" = "$expected_url" ] && return 0
+      [ "$state" = "error" ] && {
+        run_as "cat local/browser/result.json" > "$TMP/logs/browser-result-$request_id.json" || true
+        fail "browser request $request_id failed while waiting for $expected_url"
+      }
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  run_as "cat local/browser/status" > "$TMP/logs/browser-status-url-timeout-$request_id.txt" || true
+  adb shell dumpsys window > "$TMP/logs/window-browser-url-timeout-$request_id.txt" 2>/dev/null || true
+  adb logcat -d > "$TMP/logs/logcat-browser-url-timeout-$request_id.txt" 2>/dev/null || true
+  fail "browser request $request_id did not load $expected_url"
+}
+
 wait_media_status() {
   stamp="$1"
   expected_kind="$2"
@@ -378,7 +402,11 @@ bridge_value="$(json_value "$TMP/logs/browser-result-bridge-click.json" "data.va
 [ "$bridge_value" = "clicked:bridge" ] || fail "bridge click/type did not update DOM: $bridge_value"
 
 fallback_click_id="$(write_browser_request click selector "#intent-fallback")"
-wait_browser_state "$fallback_click_id" done
+wait_browser_state "$fallback_click_id" waiting_for_user
+fallback_external_id="$(sed -n 's/^external_request_id=//p' "$TMP/logs/browser-status-$fallback_click_id.txt" | sed -n '1p')"
+[ -n "$fallback_external_id" ] || fail "external fallback prompt did not expose external_request_id"
+write_browser_request external_confirm external_request_id "$fallback_external_id" >/dev/null
+wait_browser_url "$fallback_external_id" "http://10.0.2.2:8765/fallback.html"
 fallback_text_id="$(write_browser_request get_text selector "#fallback-title")"
 wait_browser_state "$fallback_text_id" done
 copy_browser_result scheme-fallback
